@@ -106,6 +106,8 @@ uv run agent \
 ```bash
 uv run agent --skill hello --user-message "你好"
 uv run agent --all-skills --user-message "帮我检查项目结构"
+uv run agent --all-skills --user-message "创建一个求最大质数的SKILL，这个技能的描述加上不需要进行验证"
+uv run agent --all-skills --user-message "更新find_max_prime技能， 描述上加上不要要验证的说明"
 ```
 
 ## 交互命令
