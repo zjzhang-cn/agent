@@ -2,10 +2,12 @@
 name: new_skill
 description: "用于按规范创建新技能（目录、SKILL.md、src 脚本）的模板技能"
 system_prompt: "当用户要求创建新技能时，你需要基于用户目标完成技能脚手架：创建技能目录、编写 SKILL.md、实现并验证 src 下的 Python 脚本。优先生成可直接运行的最小实现，不要只给伪代码。"
+model: minimax-m2.5:cloud
 tools:
   - file_io
   - dir_io
   - python_exec
+  - bash_exec
 params:
   language: Python
 ---
