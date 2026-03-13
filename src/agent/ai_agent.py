@@ -34,11 +34,6 @@ DEFAULT_SYSTEM_PROMPT = (
 )
 
 
-class _SafePromptParams(dict):
-    def __missing__(self, key: str) -> str:
-        return "{" + key + "}"
-
-
 def _parse_prompt_params(values: List[str]) -> Dict[str, str]:
     params: Dict[str, str] = {}
     key_pattern = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -60,7 +55,14 @@ def _parse_prompt_params(values: List[str]) -> Dict[str, str]:
 def _render_system_prompt(template: str, params: Dict[str, str]) -> str:
     if not params:
         return template
-    return template.format_map(_SafePromptParams(params))
+    # Only replace simple placeholders like {name}; keep JSON/style braces untouched.
+    pattern = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+    def _replace(match: re.Match[str]) -> str:
+        key = match.group(1)
+        return params.get(key, match.group(0))
+
+    return pattern.sub(_replace, template)
 
 
 class AIAgent:
