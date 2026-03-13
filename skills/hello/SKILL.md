@@ -7,6 +7,7 @@ tools:
   - file_io
   - dir_io
   - python_exec
+  - bash_exec
 params:
   language: Python
 ---
