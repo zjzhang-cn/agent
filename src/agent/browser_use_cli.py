@@ -162,10 +162,37 @@ def _parse_interactive_line(line: str) -> Dict[str, Any]:
         raise ValueError("空命令")
 
     if text.startswith("{"):
-        payload = _load_args_json(text)
-        if not str(payload.get("action", "")).strip():
-            raise ValueError("JSON 命令必须包含 action 字段")
-        return payload
+        # 检查是否包含多个JSON对象
+        payloads = []
+        start_idx = 0
+        brace_count = 0
+        
+        for i, char in enumerate(text):
+            if char == '{':
+                if brace_count == 0:
+                    start_idx = i
+                brace_count += 1
+            elif char == '}':
+                brace_count -= 1
+                if brace_count == 0:
+                    # 提取完整的JSON对象
+                    json_str = text[start_idx:i+1]
+                    payload = _load_args_json(json_str)
+                    if not str(payload.get("action", "")).strip():
+                        raise ValueError("JSON 命令必须包含 action 字段")
+                    payloads.append(payload)
+        
+        if not payloads:
+            raise ValueError("未找到有效的JSON对象")
+        
+        # 如果只有一个payload，返回它；如果有多个，创建一个包含所有payload的列表
+        if len(payloads) == 1:
+            return payloads[0]
+        else:
+            # 返回第一个payload，但将后续的payload存储到特殊字段中供处理
+            first_payload = payloads[0]
+            first_payload["_batch_commands"] = payloads[1:]
+            return first_payload
 
     tokens = shlex.split(text)
     if not tokens:
@@ -234,8 +261,19 @@ def _run_interactive(compact: bool) -> int:
             print(f"命令错误: {error}")
             continue
 
+        # 处理批量命令
+        batch_commands = payload.pop('_batch_commands', [])
+        
+        # 执行主命令
         raw = browser_use_tool(**payload)
-        _print_result(raw, compact)
+        ok = _print_result(raw, compact)
+        
+        # 执行批量命令
+        for cmd in batch_commands:
+            raw = browser_use_tool(**cmd)
+            ok = _print_result(raw, compact) and ok
+            
+    return 0 if ok else 1
 
 
 def main() -> int:
