@@ -40,7 +40,10 @@ _DEFAULT_TOOL_GUIDANCE = {
     "dir_io": "- 目录工具：可以列出、创建、删除、移动、复制目录，以及检查目录是否存在。执行前先确认路径和影响范围。",
     "python_exec": "- Python 工具：可以执行 Python 脚本或代码片段。适合做逻辑验证、生成结果、复现问题；只有在确实需要验证时才执行。",
     "bash_exec": "- Bash 工具：可以执行 Shell 命令。适合检查环境、搜索项目、运行构建或测试命令；命令应尽量具体且可控。",
-    "browser_use": "- 浏览器工具：可以通过 Playwright 进行页面打开、交互、截图、快照、网络与控制台观察。通常先 start/open/snapshot，再根据 ref 做 click/type。",
+    "browser_use": (
+        "- 浏览器工具：通过 Playwright 执行网页自动化（页面打开、交互、截图、快照、网络与控制台观察）。"
+        "推荐流程：start -> open/navigate -> snapshot -> 使用 ref 执行 click/type/hover/select_option -> 必要时 screenshot/pdf -> stop。"
+    ),
 }
 
 
@@ -102,6 +105,19 @@ def build_default_system_prompt(enabled_tools: Optional[List[str]] = None) -> st
         sections.append("工具使用说明：\n" + "\n".join(tool_lines))
     else:
         sections.append("当前未启用任何工具组，只能基于现有对话内容回答。")
+
+    if "browser_use" in tool_groups:
+        sections.append(
+            "browser_use 使用规范：\n"
+            "- 先检查页面会话是否存在；首次使用优先 action=start，再 action=open。\n"
+            "- 在执行 click/type/hover/select_option 前，优先 action=snapshot 获取 refs。\n"
+            "- 能用 ref 时优先 ref；仅当 ref 不可用时再使用 selector。\n"
+            "- 涉及弹窗、上传、多标签页时，按 handle_dialog、file_upload、tabs 流程调用，不要跳步。\n"
+            "- 导航后或关键动作后，可用 wait_for/snapshot/screenshot 验证页面状态，避免凭空断言。\n"
+            "- 若工具返回错误，先依据报错修正参数重试（如 page_id、ref、selector、url、frame_selector），不要立即放弃。\n"
+            "- 需要总结网页内容时，先通过 snapshot/evaluate 获取页面文本证据，再输出结论。\n"
+            "- 任务结束时，若浏览器仍运行，调用 action=stop 释放资源。"
+        )
 
     # 结束对话的提示词
     sections.append(
