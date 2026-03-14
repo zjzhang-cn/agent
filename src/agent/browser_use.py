@@ -413,6 +413,7 @@ def _build_snapshot(page, frame_selector: str = "") -> tuple[str, Dict[str, Dict
             tag = item.evaluate("el => el.tagName ? el.tagName.toLowerCase() : ''")
             input_type = item.get_attribute("type") or ""
             role = _infer_role(str(tag), str(input_type), str(role_attr))
+            # 获取名称的优先级：aria-label > innerText > value > placeholder
             name = item.evaluate(
                 "el => ("
                 "el.getAttribute('aria-label') || "
@@ -421,6 +422,7 @@ def _build_snapshot(page, frame_selector: str = "") -> tuple[str, Dict[str, Dict
                 "el.getAttribute('placeholder') || ''"
                 ").trim().replace(/\\s+/g, ' ').slice(0, 120)"
             )
+            # 获取标签的属性, 生成一个简洁的 CSS Selector，优先使用 id，如果没有则使用标签名、类名和 nth-of-type 组合，最多包含 6 层
             selector = item.evaluate(
                 "el => {"
                 "const esc = (s) => window.CSS && CSS.escape ? CSS.escape(s) : s;"
@@ -457,9 +459,8 @@ def _build_snapshot(page, frame_selector: str = "") -> tuple[str, Dict[str, Dict
             "nth": 0,
             "frame_selector": frame_selector.strip() if frame_selector else "",
         }
-        label = clean_name if clean_name else clean_selector
-        lines.append(f"[{ref}] role={role} target={label}")
 
+        lines.append(f'[{ref}] role={role} frame_selector="{frame_selector}" target="{clean_name}" selector="{clean_selector}"')
     if not lines:
         return "(no interactive elements found)", refs
     return "\n".join(lines), refs
