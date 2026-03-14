@@ -53,6 +53,7 @@ dev = [
 [project.scripts]
 agent = "agent.cli:main"
 ai-agent = "agent.cli:main"
+browser-use-test = "agent.browser_use_cli:main"
 
 [project.urls]
 Homepage = "https://github.com/zjzhang/agent"

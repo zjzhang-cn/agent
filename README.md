@@ -100,6 +100,42 @@ uv run agent 你好
 uv run agent --user-message "你好，介绍一下你自己"
 ```
 
+Browser Use CLI 测试工具：
+
+- 默认行为：`browser-use-test` 会自动设置 `COPAW_BROWSER_HEADED=1` 和 `COPAW_BROWSER_BRING_TO_FRONT=1`，即默认有头模式并尽量将页面切到前台。
+
+```bash
+uv run browser-use-test --action start --headed
+uv run browser-use-test --action open --page-id demo --url https://example.com
+uv run browser-use-test --action snapshot --page-id demo
+uv run browser-use-test --action click --page-id demo --selector "text=More information"
+uv run browser-use-test --action stop --force-stop
+```
+
+多次交互命令行模式（REPL）：
+
+```bash
+uv run browser-use-test --interactive
+```
+
+交互模式示例输入：
+
+```text
+start headed=true
+open page_id=demo url=https://example.com
+snapshot page_id=demo
+click page_id=demo selector="text=More information"
+evaluate page_id=demo code='() => location.href'
+stop force_stop=true
+exit
+```
+
+也可以通过 `--args-json` 一次性传参：
+
+```bash
+uv run browser-use-test --action open --args-json '{"page_id":"demo","url":"https://example.com"}'
+```
+
 ## CLI 参数
 
 - `--system-prompt`：系统提示词模板，支持 `{placeholder}`。
@@ -112,6 +148,14 @@ uv run agent --user-message "你好，介绍一下你自己"
 - `--upload-file PATH`：上传本地文件到 OpenAI（可重复传入多个），并在对话中自动附带文件引用信息。
 - `--native-file-parts`：强制开启原生 `file` 片段。
 - `--no-native-file-parts`：强制关闭原生 `file` 片段，仅通过 `file_id` 文本引用。
+
+`browser-use-test` 常用参数：
+
+- `--action`：必填，动作名，如 `start/open/click/evaluate/stop`。
+- `--args-json`：可选，JSON 对象形式的基础参数。
+- `--page-id`、`--url`、`--selector`、`--ref`、`--code`：常用动作参数。
+- `--headed/--headless`：用于 `start` 动作切换可见/无界面。
+- `--force-stop`：用于 `stop` 动作强制关闭浏览器。
 
 示例：
 
