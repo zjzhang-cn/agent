@@ -15,7 +15,7 @@ system_prompt: |
   - 完成目录与文件创建，而不只是给出模板文本。
   - 说明新技能的名称、用途、入口文件和验证结果。
   - 如果仍有待用户确认的设计点，要明确列出。
-model: minimax-m2.5:cloud
+#model: minimax-m2.5:cloud
 tools:
   - file_io
   - dir_io

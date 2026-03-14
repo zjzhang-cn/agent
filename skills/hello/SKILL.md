@@ -14,7 +14,7 @@ system_prompt: |
   输出要求：
   - 优先返回自然、简洁的问候回复。
   - 如果发生异常，直接说明异常原因。
-model: minimax-m2.5:cloud
+#model: minimax-m2.5:cloud
 tools:
   - file_io
   - dir_io

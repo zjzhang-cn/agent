@@ -15,7 +15,7 @@ system_prompt: |
   - 明确说明完成了什么实现或修改。
   - 如果进行了运行或验证，基于真实结果总结结论。
   - 如果仍有未完成项或限制，要直接指出。
-model: minimax-m2.5:cloud
+#model: minimax-m2.5:cloud
 tools:
   - file_io
   - dir_io
