@@ -27,8 +27,6 @@ from .streaming import (
     parse_tool_arguments,
 )
 
-MAX_TOOL_CALL_ROUNDS = 8
-
 _DEFAULT_TOOL_GROUP_ORDER = ["file_io", "dir_io", "python_exec", "bash_exec"]
 _DEFAULT_TOOL_GUIDANCE = {
     "file_io": "- 文件工具：可以读取、写入、编辑、追加文本文件。修改前优先读取相关文件，变更应保持最小且避免误改无关内容。",
@@ -124,6 +122,7 @@ class AIAgent:
         base_url: Optional[str] = None,
         think: Optional[Any] = None,
         max_history_rounds: Optional[int] = None,
+        max_tool_call_rounds: Optional[int] = None,
         enabled_tools: Optional[List[str]] = None,
     ):
         load_environment()
@@ -139,6 +138,13 @@ class AIAgent:
             resolved_max_history_rounds = parse_positive_int(
                 get_config_value("OPENAI_MAX_HISTORY_ROUNDS")
             )
+        resolved_max_tool_call_rounds = max_tool_call_rounds
+        if resolved_max_tool_call_rounds is None:
+            resolved_max_tool_call_rounds = parse_positive_int(
+                get_config_value("OPENAI_MAX_TOOL_CALL_ROUNDS")
+            )
+        if resolved_max_tool_call_rounds is None:
+            resolved_max_tool_call_rounds = 8  # 默认值
 
         if not resolved_api_key:
             raise ValueError("请在环境变量或 .env 文件中设置 OPENAI_API_KEY")
@@ -151,6 +157,7 @@ class AIAgent:
         self.model = resolved_model
         self.think = resolved_think
         self.max_history_rounds = resolved_max_history_rounds
+        self.max_tool_call_rounds = resolved_max_tool_call_rounds
         self.last_think_content: Optional[str] = None
         self.conversation_history: List[Dict[str, Any]] = []
         self.enabled_tools = enabled_tools  # None = 全部工具组
@@ -251,7 +258,8 @@ class AIAgent:
         self._append_user_message(user_input)
         think_parts: List[str] = []
 
-        for _ in range(MAX_TOOL_CALL_ROUNDS):
+        for round_num in range(1, self.max_tool_call_rounds + 1):
+            print(f"\n--- 对话轮数: {round_num}/{self.max_tool_call_rounds} ---")
             response = self.client.chat.completions.create(**self._build_request_kwargs(stream=False))
             message = response.choices[0].message
 
@@ -291,7 +299,8 @@ class AIAgent:
         self._append_user_message(user_input)
         think_parts: List[str] = []
 
-        for _ in range(MAX_TOOL_CALL_ROUNDS):
+        for round_num in range(1, self.max_tool_call_rounds + 1):
+            print(f"\n--- 对话轮数: {round_num}/{self.max_tool_call_rounds} ---")
             stream = self.client.chat.completions.create(**self._build_request_kwargs(stream=True))
             assistant_reply, think_content, tool_calls = consume_stream_with_tool_calls(
                 stream,
