@@ -15,7 +15,7 @@ system_prompt: |
   - 直接说明完成了什么。
   - 如果进行了验证，基于真实结果总结结论。
   - 如果仍有待确认项或限制，要明确列出。
-model: <optional_model>
+model: minimax-m2.5:cloud
 tools:
   - file_io
   - dir_io

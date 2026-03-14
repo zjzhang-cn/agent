@@ -12,3 +12,4 @@ wheels/
 # Local environment files
 .env
 .skills
+.vscode
