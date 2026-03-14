@@ -21,6 +21,7 @@ tools:
   - dir_io
   - python_exec
   - bash_exec
+  - browser_use
 params:
   language: Python
 ---

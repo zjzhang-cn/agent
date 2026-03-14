@@ -41,8 +41,12 @@ OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=gpt-4.1-mini
 OPENAI_THINK=true
 OPENAI_MAX_HISTORY_ROUNDS=20
+OPENAI_ENABLED_TOOLS=file_io,dir_io,python_exec
 OPENAI_SYSTEM_PROMPT=你是{role}，项目是{project}
 SKILL_SEARCH_DIRS=skills:.agent/skills:~/.agent/skills
+COPAW_BROWSER_HEADED=false
+COPAW_BROWSER_BRING_TO_FRONT=true
+COPAW_BROWSER_AUTO_STOP=true
 ```
 
 也支持短变量名：
@@ -61,8 +65,12 @@ THINK=true
 - `OPENAI_MODEL` / `MODEL`：默认模型名。
 - `OPENAI_THINK` / `THINK`：透传到请求体的 `think` 字段。
 - `OPENAI_MAX_HISTORY_ROUNDS`：保留的历史轮数，超出后自动裁剪。
+- `OPENAI_ENABLED_TOOLS` / `ENABLED_TOOLS`：默认启用的工具组，支持逗号分隔字符串或 JSON 数组，例如 `file_io,dir_io` 或 `["file_io", "browser_use"]`。
 - `OPENAI_SYSTEM_PROMPT` / `SYSTEM_PROMPT`：默认系统提示词模板。
 - `SKILL_SEARCH_DIRS`：Skill 搜索目录，使用系统路径分隔符连接（macOS/Linux 为 `:`，Windows 为 `;`）。
+- `COPAW_BROWSER_HEADED`：`browser_use` 的默认浏览器可见性。`true` 表示默认可见窗口（headed），`false` 表示默认无界面（headless）。`action=start` 里显式传 `headed` 时会覆盖该默认值。
+- `COPAW_BROWSER_BRING_TO_FRONT`：是否在可见模式下自动调用 `page.bring_to_front()` 将标签页切到前台。默认 `true`，设为 `false` 可关闭。
+- `COPAW_BROWSER_AUTO_STOP`：是否允许普通 `action=stop` 自动关闭浏览器。默认 `true`；设为 `false` 后，普通 stop 会被忽略（可通过 `force_stop=true` 强制关闭）。
 
 ## 快速开始
 
@@ -93,6 +101,7 @@ uv run agent --user-message "你好，介绍一下你自己"
 - `--skill NAME`：加载指定 Skill，可重复。
 - `--all-skills`：加载全部发现的 Skill。
 - `--list-skills`：列出 Skill 后退出。
+- `--list-tools`：列出所有工具组及其工具后退出。
 
 示例：
 
@@ -105,6 +114,7 @@ uv run agent \
 
 ```bash
 uv run agent --skill hello --user-message "你好"
+uv run agent --list-tools
 uv run agent --all-skills --user-message "帮我检查项目结构"
 uv run agent --all-skills --user-message "创建一个求最大质数的SKILL，用Python实现, 描述上加上不要要验证的"
 uv run agent --all-skills --user-message "更新find_max_prime技能， 描述上加上不要要验证的说明"
@@ -151,7 +161,7 @@ Skill 常用字段：
 - `description`：简要说明
 - `system_prompt`：系统提示词模板
 - `model`：覆盖默认模型
-- `tools`：启用工具组（`file_io`、`dir_io`、`python_exec`、`bash_exec`）
+- `tools`：启用工具组（`file_io`、`dir_io`、`python_exec`、`bash_exec`、`browser_use`）
 - `params`：默认模板参数
 
 推荐优先从 `skills/skill-creator/SKILL_TEMPLATE.md` 复制创建新的 `SKILL.md`。该模板已经包含统一的结构：frontmatter、工作流程、约束、输出要求，以及“提示词要与实际工具能力一致”的默认约束。
@@ -162,6 +172,9 @@ Skill 常用字段：
 - `dir_io`：目录列表/创建/删除/移动/复制/存在性检查
 - `python_exec`：`run_python_script`、`run_python_code`
 - `bash_exec`：`run_bash_command`
+- `browser_use`：`browser_use(action=...)`，支持 Playwright 网页打开、交互、快照、截图等操作
+
+如果需要禁用全部默认工具，可以将 `OPENAI_ENABLED_TOOLS` 设为 `[]`。当 Skill 显式声明 `tools` 时，仍会优先使用 Skill 的工具组配置；未声明时会回退到这里设置的默认值。
 
 ## 常见问题
 

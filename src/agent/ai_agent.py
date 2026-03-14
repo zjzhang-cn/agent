@@ -11,6 +11,7 @@ from .config import (
     load_environment,
     parse_config_value,
     parse_positive_int,
+    parse_string_list,
 )
 from .dir_io import DIR_IO_TOOLS, dispatch_dir_io_tool
 from .file_io import FILE_IO_TOOLS, dispatch_file_io_tool
@@ -58,6 +59,50 @@ def _resolve_enabled_tools(enabled_tools: Optional[List[str]]) -> List[str]:
             ordered.append(tool_name)
             seen.add(tool_name)
     return ordered
+
+
+def _get_configured_enabled_tools() -> Optional[List[str]]:
+    configured = parse_string_list(
+        get_config_value("OPENAI_ENABLED_TOOLS", "ENABLED_TOOLS")
+    )
+    if configured is None:
+        return None
+    return _resolve_enabled_tools(configured)
+
+
+def _list_tool_names(tool_defs: List[Dict[str, Any]]) -> List[str]:
+    names: List[str] = []
+    for tool_def in tool_defs:
+        function = tool_def.get("function", {})
+        name = str(function.get("name", "")).strip()
+        if name:
+            names.append(name)
+    return names
+
+
+def _print_available_tools() -> None:
+    configured_enabled_tools = _get_configured_enabled_tools()
+    enabled_set = set(
+        configured_enabled_tools
+        if configured_enabled_tools is not None
+        else _DEFAULT_TOOL_GROUP_ORDER
+    )
+
+    print("可用工具组:")
+    for group_name in _DEFAULT_TOOL_GROUP_ORDER:
+        tool_names = _list_tool_names(AIAgent._get_tool_groups().get(group_name, []))
+        enabled_label = "默认启用" if group_name in enabled_set else "默认关闭"
+        print(f"  {group_name} [{enabled_label}]")
+        guidance = _DEFAULT_TOOL_GUIDANCE.get(group_name)
+        if guidance:
+            print(f"    {guidance.lstrip('- ').strip()}")
+        print(f"    tools: {', '.join(tool_names) if tool_names else '(none)'}")
+
+    if configured_enabled_tools is None:
+        print("\n当前未配置 OPENAI_ENABLED_TOOLS / ENABLED_TOOLS，默认启用全部工具组。")
+    else:
+        summary = ", ".join(configured_enabled_tools) if configured_enabled_tools else "(none)"
+        print(f"\n当前配置默认启用工具组: {summary}")
 
 
 # 结束对话的关键词
@@ -208,7 +253,11 @@ class AIAgent:
         self.max_tool_call_rounds = resolved_max_tool_call_rounds
         self.last_think_content: Optional[str] = None
         self.conversation_history: List[Dict[str, Any]] = []
-        self.enabled_tools = enabled_tools  # None = 全部工具组
+        resolved_enabled_tools = enabled_tools
+        if resolved_enabled_tools is None:
+            resolved_enabled_tools = _get_configured_enabled_tools()
+        self.default_enabled_tools = resolved_enabled_tools
+        self.enabled_tools = resolved_enabled_tools
 
     def _trim_history_if_needed(self) -> None:
         if not self.max_history_rounds or self.max_history_rounds <= 0:
@@ -466,7 +515,7 @@ def _apply_skills_to_agent(
 
     if skill.model:
         agent.model = skill.model
-    agent.enabled_tools = skill.tools  # None = 全部工具
+    agent.enabled_tools = skill.tools if skill.tools is not None else agent.default_enabled_tools
 
     base = (
         cli_system_prompt
@@ -519,12 +568,21 @@ def main() -> int:
         help="列出所有可用 skill 并退出。",
     )
     parser.add_argument(
+        "--list-tools",
+        action="store_true",
+        help="列出所有可用工具组及其工具并退出。",
+    )
+    parser.add_argument(
         "--all-skills",
         action="store_true",
         help="加载所有已发现的 skill。可与 --skill 组合使用。",
     )
 
     args = parser.parse_args()
+
+    if args.list_tools:
+        _print_available_tools()
+        return 0
 
     # --list-skills: 列出 skill 后退出
     if args.list_skills:
@@ -593,6 +651,7 @@ def main() -> int:
         return 1
 
     original_model = agent.model
+    original_enabled_tools = agent.default_enabled_tools
     cli_system_prompt = args.system_prompt
 
     # 系统提示词优先级: --system-prompt > skill.system_prompt > 环境变量 > 默认
@@ -720,7 +779,7 @@ def main() -> int:
                 continue
             selected_skill_names = []
             agent.model = original_model
-            agent.enabled_tools = None
+            agent.enabled_tools = original_enabled_tools
             base = (
                 cli_system_prompt
                 or get_config_value("OPENAI_SYSTEM_PROMPT", "SYSTEM_PROMPT")

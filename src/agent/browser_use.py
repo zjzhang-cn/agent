@@ -11,6 +11,9 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
 from .config import (
+    get_browser_auto_stop_enabled,
+    get_browser_bring_to_front_enabled,
+    get_browser_headed_default,
     get_playwright_chromium_executable_path,
     get_system_default_browser,
     is_running_in_container,
@@ -79,6 +82,7 @@ BROWSER_USE_TOOLS: List[Dict[str, Any]] = [
                     "text_gone": {"type": "string"},
                     "frame_selector": {"type": "string"},
                     "headed": {"type": "boolean"},
+                    "force_stop": {"type": "boolean"},
                 },
                 "required": ["action"],
                 "additionalProperties": False,
@@ -113,6 +117,32 @@ def _tool_response(payload: Dict[str, Any]) -> str:
 
 def _touch_activity() -> None:
     _state["last_activity_time"] = time.monotonic()
+
+
+def _get_default_headed() -> bool:
+    """Read headed default at runtime so .env changes are respected."""
+    return get_browser_headed_default()
+
+
+def _is_bring_to_front_enabled() -> bool:
+    """Read bring_to_front switch at runtime."""
+    return get_browser_bring_to_front_enabled()
+
+
+def _is_auto_stop_enabled() -> bool:
+    """Read auto stop switch at runtime."""
+    return get_browser_auto_stop_enabled()
+
+
+def _bring_page_to_front(page) -> None:
+    """Best-effort: focus the target page when browser is visible."""
+    if (not _is_bring_to_front_enabled()) or page is None or _state.get("headless", True):
+        return
+    try:
+        page.bring_to_front()
+    except Exception:
+        # Keep non-fatal so normal automation can continue.
+        pass
 
 
 def _is_browser_running() -> bool:
@@ -184,8 +214,10 @@ def _cleanup_if_idle() -> None:
         return
     idle = time.monotonic() - _state.get("last_activity_time", 0.0)
     if idle >= _BROWSER_IDLE_TIMEOUT:
+        if not _is_auto_stop_enabled():
+            return
         logger.info("Browser idle for %.0fs, stopping", idle)
-        _action_stop()
+        _action_stop(force=True)
 
 
 def _attach_page_listeners(page, page_id: str) -> None:
@@ -286,6 +318,10 @@ def _ensure_browser() -> bool:
     if _state["browser"] is not None and _state["context"] is not None:
         _touch_activity()
         return True
+
+    # For implicit startup (e.g. action=open before action=start),
+    # sync headless/headed from runtime config.
+    _state["headless"] = not _get_default_headed()
 
     try:
         pw, browser, context = _launch_browser(_state["headless"])
@@ -429,28 +465,37 @@ def _build_snapshot(page, frame_selector: str = "") -> tuple[str, Dict[str, Dict
     return "\n".join(lines), refs
 
 
-def _action_start(headed: bool = False) -> str:
+def _action_start(headed: Optional[bool] = None) -> str:
+    effective_headed = _get_default_headed() if headed is None else bool(headed)
     browser_exists = _state["browser"] is not None
     if browser_exists:
-        if headed and _state["headless"]:
+        if effective_headed and _state["headless"]:
             _action_stop()
         else:
             return _tool_response({"ok": True, "message": "Browser already running"})
 
-    _state["headless"] = not headed
+    _state["headless"] = not effective_headed
     try:
         pw, browser, context = _launch_browser(_state["headless"])
         _state["playwright"] = pw
         _state["browser"] = browser
         _state["context"] = context
         _touch_activity()
-        message = "Browser started (visible window)" if headed else "Browser started"
+        message = "Browser started (visible window)" if effective_headed else "Browser started"
         return _tool_response({"ok": True, "message": message})
     except Exception as error:
         return _tool_response({"ok": False, "error": f"Browser start failed: {error!s}"})
 
 
-def _action_stop() -> str:
+def _action_stop(force: bool = False) -> str:
+    if (not force) and (not _is_auto_stop_enabled()):
+        return _tool_response(
+            {
+                "ok": True,
+                "message": "Auto stop disabled by config; skip stop",
+            }
+        )
+
     if not _is_browser_running():
         return _tool_response({"ok": True, "message": "Browser not running"})
 
@@ -483,6 +528,7 @@ def _action_open(url: str, page_id: str) -> str:
         _state["pending_file_choosers"][page_id] = []
         _attach_page_listeners(page, page_id)
         page.goto(url)
+        _bring_page_to_front(page)
         _state["pages"][page_id] = page
         _state["current_page_id"] = page_id
         _touch_activity()
@@ -503,6 +549,7 @@ def _action_navigate(url: str, page_id: str) -> str:
 
     try:
         page.goto(url)
+        _bring_page_to_front(page)
         _state["current_page_id"] = page_id
         _touch_activity()
         return _tool_response(
@@ -519,6 +566,7 @@ def _action_navigate_back(page_id: str) -> str:
 
     try:
         page.go_back()
+        _bring_page_to_front(page)
         _touch_activity()
         return _tool_response({"ok": True, "message": "Navigated back", "url": page.url})
     except Exception as error:
@@ -1127,6 +1175,7 @@ def _action_tabs(page_id: str, tab_action: str, index: int) -> str:
             _state["pending_dialogs"][new_id] = []
             _state["pending_file_choosers"][new_id] = []
             _attach_page_listeners(page, new_id)
+            _bring_page_to_front(page)
             _state["pages"][new_id] = page
             _state["current_page_id"] = new_id
             _touch_activity()
@@ -1144,6 +1193,7 @@ def _action_tabs(page_id: str, tab_action: str, index: int) -> str:
         target_id = page_ids[index] if 0 <= index < len(page_ids) else page_id
         if target_id not in _state["pages"]:
             return _tool_response({"ok": False, "error": f"Page '{target_id}' not found"})
+        _bring_page_to_front(_state["pages"].get(target_id))
         _state["current_page_id"] = target_id
         return _tool_response(
             {
@@ -1263,7 +1313,8 @@ def browser_use_tool(
     wait_time: float = 0,
     text_gone: str = "",
     frame_selector: str = "",
-    headed: bool = False,
+    headed: Optional[bool] = None,
+    force_stop: bool = False,
 ) -> str:
     del element, start_element, end_element
 
@@ -1279,9 +1330,10 @@ def browser_use_tool(
 
     try:
         if action == "start":
-            return _action_start(headed=_coerce_bool(headed, False))
+            resolved_headed = None if headed is None else _coerce_bool(headed, False)
+            return _action_start(headed=resolved_headed)
         if action == "stop":
-            return _action_stop()
+            return _action_stop(force=_coerce_bool(force_stop, False))
         if action == "open":
             return _action_open(url, page_id)
         if action == "navigate":
@@ -1415,7 +1467,8 @@ def dispatch_browser_use_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
             wait_time=arguments.get("wait_time", 0.0),
             text_gone=str(arguments.get("text_gone", "")),
             frame_selector=str(arguments.get("frame_selector", "")),
-            headed=arguments.get("headed", False),
+            headed=arguments.get("headed"),
+            force_stop=arguments.get("force_stop", False),
         )
     except Exception as error:
         return f"Error: Tool `{tool_name}` execution failed due to\n{error}"

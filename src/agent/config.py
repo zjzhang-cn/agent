@@ -3,7 +3,7 @@ import os
 import shutil
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 from dotenv import load_dotenv
 
@@ -19,6 +19,18 @@ def get_config_value(*names: str) -> Optional[str]:
         if value:
             return value
     return None
+
+
+def parse_bool(value: Optional[str], default: bool = False) -> bool:
+    if value is None:
+        return default
+
+    lowered_value = value.strip().lower()
+    if lowered_value in ("1", "true", "yes", "on"):
+        return True
+    if lowered_value in ("0", "false", "no", "off"):
+        return False
+    return default
 
 
 def parse_config_value(value: Optional[str]) -> Optional[Any]:
@@ -39,6 +51,27 @@ def parse_config_value(value: Optional[str]) -> Optional[Any]:
         return json.loads(stripped_value)
     except json.JSONDecodeError:
         return stripped_value
+
+
+def parse_string_list(value: Optional[str]) -> Optional[List[str]]:
+    if value is None:
+        return None
+
+    stripped_value = value.strip()
+    if not stripped_value:
+        return None
+
+    try:
+        parsed = json.loads(stripped_value)
+    except json.JSONDecodeError:
+        parsed = None
+
+    if isinstance(parsed, list):
+        return [str(item).strip() for item in parsed if str(item).strip()]
+    if isinstance(parsed, str):
+        stripped_value = parsed.strip()
+
+    return [item.strip() for item in stripped_value.split(",") if item.strip()]
 
 
 def parse_positive_int(value: Optional[str]) -> Optional[int]:
@@ -129,3 +162,42 @@ def get_system_default_browser() -> tuple[Optional[str], Optional[str]]:
             return "webkit", str(safari_app)
 
     return None, None
+
+
+def get_browser_headed_default() -> bool:
+    """Return default headed mode for browser_use start action.
+
+    Env vars (first non-empty wins):
+    - COPAW_BROWSER_HEADED
+    - BROWSER_HEADED
+    """
+    value = get_config_value("COPAW_BROWSER_HEADED", "BROWSER_HEADED")
+    return parse_bool(value, default=False)
+
+
+def get_browser_bring_to_front_enabled() -> bool:
+    """Return whether browser_use should call page.bring_to_front().
+
+    Env vars (first non-empty wins):
+    - COPAW_BROWSER_BRING_TO_FRONT
+    - BROWSER_BRING_TO_FRONT
+    """
+    value = get_config_value(
+        "COPAW_BROWSER_BRING_TO_FRONT",
+        "BROWSER_BRING_TO_FRONT",
+    )
+    return parse_bool(value, default=True)
+
+
+def get_browser_auto_stop_enabled() -> bool:
+    """Return whether browser_use allows normal stop actions.
+
+    Env vars (first non-empty wins):
+    - COPAW_BROWSER_AUTO_STOP
+    - BROWSER_AUTO_STOP
+    """
+    value = get_config_value(
+        "COPAW_BROWSER_AUTO_STOP",
+        "BROWSER_AUTO_STOP",
+    )
+    return parse_bool(value, default=True)
