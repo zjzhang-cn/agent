@@ -1,4 +1,5 @@
 import argparse
+import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -9,6 +10,7 @@ from .browser_use import BROWSER_USE_TOOLS, dispatch_browser_use_tool
 from .config import (
     get_config_value,
     load_environment,
+    parse_bool,
     parse_config_value,
     parse_positive_int,
     parse_string_list,
@@ -225,6 +227,7 @@ class AIAgent:
         max_history_rounds: Optional[int] = None,
         max_tool_call_rounds: Optional[int] = None,
         enabled_tools: Optional[List[str]] = None,
+        include_native_file_parts: Optional[bool] = None,
     ):
         load_environment()
 
@@ -246,6 +249,15 @@ class AIAgent:
             )
         if resolved_max_tool_call_rounds is None:
             resolved_max_tool_call_rounds = 8  # 默认值
+        resolved_include_native_file_parts = include_native_file_parts
+        if resolved_include_native_file_parts is None:
+            resolved_include_native_file_parts = parse_bool(
+                get_config_value(
+                    "OPENAI_INCLUDE_NATIVE_FILE_PARTS",
+                    "INCLUDE_NATIVE_FILE_PARTS",
+                ),
+                default=True,
+            )
 
         if not resolved_api_key:
             raise ValueError("请在环境变量或 .env 文件中设置 OPENAI_API_KEY")
@@ -259,13 +271,50 @@ class AIAgent:
         self.think = resolved_think
         self.max_history_rounds = resolved_max_history_rounds
         self.max_tool_call_rounds = resolved_max_tool_call_rounds
+        self.include_native_file_parts = resolved_include_native_file_parts
         self.last_think_content: Optional[str] = None
         self.conversation_history: List[Dict[str, Any]] = []
+        self.uploaded_files: List[Dict[str, str]] = []
         resolved_enabled_tools = enabled_tools
         if resolved_enabled_tools is None:
             resolved_enabled_tools = _get_configured_enabled_tools()
         self.default_enabled_tools = resolved_enabled_tools
         self.enabled_tools = resolved_enabled_tools
+
+    def upload_local_file(self, file_path: str, purpose: str = "user_data") -> Dict[str, str]:
+        """上传本地文件到 OpenAI Files API，并记录到当前会话。"""
+        expanded_path = os.path.abspath(os.path.expanduser(file_path))
+        if not os.path.isfile(expanded_path):
+            raise FileNotFoundError(f"文件不存在: {file_path}")
+
+        last_error: Optional[Exception] = None
+        for current_purpose in (purpose, "assistants"):
+            try:
+                with open(expanded_path, "rb") as fp:
+                    uploaded = self.client.files.create(file=fp, purpose=current_purpose)
+                file_info = {
+                    "id": str(getattr(uploaded, "id", "")),
+                    "filename": str(getattr(uploaded, "filename", os.path.basename(expanded_path))),
+                    "purpose": current_purpose,
+                    "path": expanded_path,
+                }
+                if not file_info["id"]:
+                    raise ValueError("上传成功但未返回 file_id")
+                self.uploaded_files.append(file_info)
+                return file_info
+            except Exception as error:
+                last_error = error
+                if current_purpose == "assistants":
+                    break
+
+        assert last_error is not None
+        raise RuntimeError(f"文件上传失败: {last_error}")
+
+    def get_uploaded_files(self) -> List[Dict[str, str]]:
+        return list(self.uploaded_files)
+
+    def clear_uploaded_files(self) -> None:
+        self.uploaded_files = []
 
     def _trim_history_if_needed(self) -> None:
         if not self.max_history_rounds or self.max_history_rounds <= 0:
@@ -324,7 +373,24 @@ class AIAgent:
         return request_kwargs
 
     def _append_user_message(self, user_input: str) -> None:
-        self.conversation_history.append({"role": "user", "content": user_input})
+        if self.uploaded_files:
+            refs = [f"- {item['filename']}: {item['id']}" for item in self.uploaded_files]
+            ref_text = (
+                "可引用的 OpenAI 文件（已上传）:\n"
+                + "\n".join(refs)
+                + "\n如需引用，请在分析中使用对应 file_id。"
+            )
+            content: Any = [
+                {"type": "text", "text": user_input},
+                {"type": "text", "text": ref_text},
+            ]
+            if self.include_native_file_parts:
+                for item in self.uploaded_files:
+                    # 某些兼容端点不接受 file 类型消息片段；可通过开关关闭，仅保留 file_id 文本引用。
+                    content.append({"type": "file", "file": {"file_id": item["id"]}})
+            self.conversation_history.append({"role": "user", "content": content})
+        else:
+            self.conversation_history.append({"role": "user", "content": user_input})
         self.last_think_content = None
         self._trim_history_if_needed()
 
@@ -590,6 +656,27 @@ def main() -> int:
         action="store_true",
         help="加载所有已发现的 skill。可与 --skill 组合使用。",
     )
+    parser.add_argument(
+        "--upload-file",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="上传本地文件到 OpenAI（可重复传入多个）。上传后会在对话中自动附带 file_id 引用信息。",
+    )
+    native_file_parts_group = parser.add_mutually_exclusive_group()
+    native_file_parts_group.add_argument(
+        "--native-file-parts",
+        action="store_true",
+        dest="native_file_parts",
+        help="在用户消息中附带原生 file 片段（默认由环境变量控制，默认开启）。",
+    )
+    native_file_parts_group.add_argument(
+        "--no-native-file-parts",
+        action="store_false",
+        dest="native_file_parts",
+        help="不附带原生 file 片段，仅通过文本中的 file_id 引用文件。",
+    )
+    parser.set_defaults(native_file_parts=None)
 
     args = parser.parse_args()
 
@@ -656,6 +743,8 @@ def main() -> int:
         agent_kwargs["model"] = skill.model
     if skill and skill.tools is not None:
         agent_kwargs["enabled_tools"] = skill.tools
+    if args.native_file_parts is not None:
+        agent_kwargs["include_native_file_parts"] = args.native_file_parts
 
     try:
         agent = AIAgent(**agent_kwargs)
@@ -691,8 +780,21 @@ def main() -> int:
         print(f"多轮上下文保留轮数: {agent.max_history_rounds}")
     if agent.enabled_tools is not None:
         print(f"已启用工具组: {agent.enabled_tools}")
+    print(f"原生文件片段: {'开启' if agent.include_native_file_parts else '关闭'}")
     if effective_params:
         print(f"提示词参数: {effective_params}")
+
+    if args.upload_file:
+        for file_path in args.upload_file:
+            try:
+                file_info = agent.upload_local_file(file_path)
+                print(
+                    f"已上传文件: {file_info['filename']} -> {file_info['id']} "
+                    f"(purpose={file_info['purpose']})"
+                )
+            except Exception as error:
+                print(f"上传失败: {file_path} ({error})")
+                return 1
 
     cli_user_message = args.user_message
     if not cli_user_message and args.input_message:
@@ -706,6 +808,7 @@ def main() -> int:
 
     print("命令: /reset 重置对话, /history 查看历史, /system <提示词> 更新系统提示")
     print("Skill: /skill list 列出, /skill load <名称> 加载, /skill unload 卸载, /skill reload 重载")
+    print("File: /upload <本地路径> 上传文件, /files 查看已上传文件, /fileparts [on|off] 切换原生文件片段")
     print("输入 'quit'、'exit' 或 '退出' 结束对话。")
 
     while True:
@@ -728,6 +831,52 @@ def main() -> int:
         if user_input == "/reset":
             agent.start_conversation(initial_system_prompt)
             print("会话已重置。\n")
+            continue
+
+        if user_input == "/files":
+            uploaded_files = agent.get_uploaded_files()
+            if not uploaded_files:
+                print("当前没有已上传文件。\n")
+                continue
+            print("当前已上传文件:")
+            for item in uploaded_files:
+                print(
+                    f"- {item.get('filename', '')} -> {item.get('id', '')} "
+                    f"(purpose={item.get('purpose', '')})"
+                )
+            print()
+            continue
+
+        if user_input.startswith("/upload "):
+            file_path = user_input[len("/upload ") :].strip()
+            if not file_path:
+                print("用法: /upload <本地文件路径>\n")
+                continue
+            try:
+                file_info = agent.upload_local_file(file_path)
+                print(
+                    f"上传成功: {file_info['filename']} -> {file_info['id']} "
+                    f"(purpose={file_info['purpose']})\n"
+                )
+            except Exception as error:
+                print(f"上传失败: {error}\n")
+            continue
+
+        if user_input == "/fileparts":
+            print(f"原生文件片段当前状态: {'开启' if agent.include_native_file_parts else '关闭'}\n")
+            continue
+
+        if user_input.startswith("/fileparts "):
+            value = user_input[len("/fileparts ") :].strip().lower()
+            if value in ("on", "true", "1"):
+                agent.include_native_file_parts = True
+                print("已开启原生文件片段。\n")
+                continue
+            if value in ("off", "false", "0"):
+                agent.include_native_file_parts = False
+                print("已关闭原生文件片段（仅保留 file_id 文本引用）。\n")
+                continue
+            print("用法: /fileparts [on|off]\n")
             continue
 
         if user_input == "/history":
