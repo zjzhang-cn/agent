@@ -31,11 +31,11 @@ params:
 
 ## 工作流程
 1. 识别用户意图和目标能力（输入、输出、边界条件）。
-2. 生成技能名（建议使用 `snake_case`），创建目录：`skills/<skill_name>/`。
-3. 优先基于 `skills/skill-creator/SKILL_TEMPLATE.md` 创建 `skills/<skill_name>/SKILL.md`：
+2. 生成技能名（建议使用 `snake_case`），创建目录：`.skills/<skill_name>/`。
+3. 优先基于 `skills/skill-creator/SKILL_TEMPLATE.md` 创建 `.skills/<skill_name>/SKILL.md`：
   - 替换模板中的占位符，并删除不需要的字段。
   - 保持 frontmatter、正文流程、约束和输出要求的结构完整。
-4. 创建实现目录和脚本：`skills/<skill_name>/src/<skill_name>.py`。
+4. 创建实现目录和脚本：`.skills/<skill_name>/src/<skill_name>.py`。
 5. 实现最小可用版本，优先保证正确性和可读性。
 6. 运行脚本并验证输出，必要时修正异常处理和边界逻辑。
 7. 向用户反馈创建结果：新增文件路径、如何调用、已完成的验证。
@@ -45,12 +45,12 @@ params:
 - 代码应包含基础输入校验和错误提示。
 - 避免硬编码绝对路径，使用项目相对路径。
 - 未经用户要求，不引入额外第三方依赖。
-- 新技能默认应创建在当前仓库的 `skills/` 目录下，除非用户明确指定其他位置。
+- 新技能默认应创建在当前仓库的 `.skills/` 目录下，除非用户明确指定其他位置。
 - `system_prompt` 应写成可执行的行为说明，避免空泛表述。
 - 默认复用 `skills/skill-creator/SKILL_TEMPLATE.md` 的结构，除非用户明确要求不同格式。
 
 ## 产出清单
-- `skills/<skill_name>/SKILL.md`
-- `skills/<skill_name>/src/<skill_name>.py`
+- `.skills/<skill_name>/SKILL.md`
+- `.skills/<skill_name>/src/<skill_name>.py`
 - 一段可直接复现的运行示例（输入与输出）
 

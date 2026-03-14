@@ -32,8 +32,8 @@ agent = "agent.ai_agent:main"
 ai-agent = "agent.ai_agent:main"
 
 [project.urls]
-Homepage = "https://github.com/yourusername/agent"
-Repository = "https://github.com/yourusername/agent"
+Homepage = "https://github.com/zjzhang/agent"
+Repository = "https://github.com/zjzhang/agent"
 
 [tool.setuptools.packages.find]
 where = ["src"]
