@@ -49,6 +49,25 @@ def _resolve_enabled_tools(enabled_tools: Optional[List[str]]) -> List[str]:
     return ordered
 
 
+# 结束对话的关键词
+_END_CONVERSATION_KEYWORDS = [
+    "<<再见>>",
+    "<<结束>>",
+    "<<完成>>",
+    "<<结束对话>>",
+    "<<MESSAGE_END>>",
+    "<<END>>",
+]
+
+
+def _should_end_conversation(response_content: Optional[str]) -> bool:
+    """根据回复内容判断是否应该结束对话"""
+    if not response_content:
+        return False
+    content_lower = response_content.lower()
+    return any(keyword in content_lower for keyword in _END_CONVERSATION_KEYWORDS)
+
+
 def build_default_system_prompt(enabled_tools: Optional[List[str]] = None) -> str:
     tool_groups = _resolve_enabled_tools(enabled_tools)
     tool_lines = [_DEFAULT_TOOL_GUIDANCE[name] for name in tool_groups]
@@ -75,6 +94,11 @@ def build_default_system_prompt(enabled_tools: Optional[List[str]] = None) -> st
         sections.append("工具使用说明：\n" + "\n".join(tool_lines))
     else:
         sections.append("当前未启用任何工具组，只能基于现有对话内容回答。")
+
+    # 结束对话的提示词
+    sections.append(
+        "【结束指引】任务完成后，使用 <<再见>>、<<结束>>、<<完成>>、<<结束对话>>、<<MESSAGE_END>> 或 <<END>> 明确告知用户对话即将结束。"
+    )
 
     return "\n\n".join(sections)
 
@@ -268,8 +292,19 @@ class AIAgent:
                 think_parts.append(think_content)
 
             tool_calls = getattr(message, "tool_calls", None) or []
+            assistant_reply = message.content or ""
+
+            # 根据回复内容判断是否应该结束对话
+            if _should_end_conversation(assistant_reply):
+                print(f"\n✓ 对话结束: AI 主动结束（第 {round_num} 轮）")
+                self.conversation_history.append(
+                    {"role": "assistant", "content": assistant_reply}
+                )
+                self.last_think_content = "\n".join(think_parts).strip() or None
+                return assistant_reply, self.last_think_content
+
             if not tool_calls:
-                assistant_reply = message.content or ""
+                # 无工具调用且无结束关键词，继续下一轮
                 self.conversation_history.append(
                     {"role": "assistant", "content": assistant_reply}
                 )
@@ -282,7 +317,7 @@ class AIAgent:
             self.conversation_history.append(
                 {
                     "role": "assistant",
-                    "content": message.content or "",
+                    "content": assistant_reply,
                     "tool_calls": serialized_tool_calls,
                 }
             )
@@ -310,7 +345,17 @@ class AIAgent:
             if think_content:
                 think_parts.append(think_content)
 
+            # 根据回复内容判断是否应该结束对话
+            if _should_end_conversation(assistant_reply):
+                print(f"\n✓ 对话结束: AI 主动结束（第 {round_num} 轮）")
+                self.conversation_history.append(
+                    {"role": "assistant", "content": assistant_reply}
+                )
+                self.last_think_content = "\n".join(think_parts).strip() or None
+                return assistant_reply, self.last_think_content
+
             if not tool_calls:
+                # 无工具调用且无结束关键词，继续下一轮
                 self.conversation_history.append(
                     {"role": "assistant", "content": assistant_reply}
                 )
@@ -333,6 +378,8 @@ class AIAgent:
 
             print()
 
+        # 超过最大轮数限制
+        print(f"\n✗ 对话结束: 超过最大轮数限制（{self.max_tool_call_rounds} 轮）")
         fallback = "Error: Tool call rounds exceeded the maximum limit."
         self.conversation_history.append({"role": "assistant", "content": fallback})
         self.last_think_content = "\n".join(think_parts).strip() or None
