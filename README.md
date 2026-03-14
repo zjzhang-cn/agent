@@ -141,6 +141,8 @@ Skill 常用字段：
 - `tools`：启用工具组（`file_io`、`dir_io`、`python_exec`、`bash_exec`）
 - `params`：默认模板参数
 
+推荐优先从 `skills/skill-creator/SKILL_TEMPLATE.md` 复制创建新的 `SKILL.md`。该模板已经包含统一的结构：frontmatter、工作流程、约束、输出要求，以及“提示词要与实际工具能力一致”的默认约束。
+
 ## 内置工具组
 
 - `file_io`：`read_file`、`write_file`、`edit_file`、`append_file`

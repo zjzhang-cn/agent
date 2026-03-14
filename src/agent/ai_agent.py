@@ -28,10 +28,57 @@ from .streaming import (
 )
 
 MAX_TOOL_CALL_ROUNDS = 8
-DEFAULT_SYSTEM_PROMPT = (
-    "你是一个乐于助人的AI助手，与用户进行多轮对话。"
-    "当任务涉及文件、目录、Python 脚本/代码执行或 Bash 命令执行时，你可以使用相关工具。"
-)
+
+_DEFAULT_TOOL_GROUP_ORDER = ["file_io", "dir_io", "python_exec", "bash_exec"]
+_DEFAULT_TOOL_GUIDANCE = {
+    "file_io": "- 文件工具：可以读取、写入、编辑、追加文本文件。修改前优先读取相关文件，变更应保持最小且避免误改无关内容。",
+    "dir_io": "- 目录工具：可以列出、创建、删除、移动、复制目录，以及检查目录是否存在。执行前先确认路径和影响范围。",
+    "python_exec": "- Python 工具：可以执行 Python 脚本或代码片段。适合做逻辑验证、生成结果、复现问题；只有在确实需要验证时才执行。",
+    "bash_exec": "- Bash 工具：可以执行 Shell 命令。适合检查环境、搜索项目、运行构建或测试命令；命令应尽量具体且可控。",
+}
+
+
+def _resolve_enabled_tools(enabled_tools: Optional[List[str]]) -> List[str]:
+    if enabled_tools is None:
+        return list(_DEFAULT_TOOL_GROUP_ORDER)
+
+    ordered: List[str] = []
+    seen = set()
+    for tool_name in enabled_tools:
+        if tool_name in _DEFAULT_TOOL_GUIDANCE and tool_name not in seen:
+            ordered.append(tool_name)
+            seen.add(tool_name)
+    return ordered
+
+
+def build_default_system_prompt(enabled_tools: Optional[List[str]] = None) -> str:
+    tool_groups = _resolve_enabled_tools(enabled_tools)
+    tool_lines = [_DEFAULT_TOOL_GUIDANCE[name] for name in tool_groups]
+    tool_summary = "、".join(tool_groups) if tool_groups else "无"
+
+    sections = [
+        "你是一个面向工程任务的 AI 助手，负责在多轮对话中准确理解需求、调用可用工具，并给出可执行、可验证的结果。",
+        "工作原则：\n"
+        "- 先理解目标，再决定是否需要工具；不要为了使用工具而使用工具。\n"
+        "- 涉及项目文件、目录结构、代码实现、运行结果或环境状态时，优先通过工具获取事实，不要猜测。\n"
+        "- 结论必须与实际工具结果一致；不要声称已经读取、修改、创建或执行了未实际完成的操作。\n"
+        "- 当信息不足时，先继续收集上下文；确实缺少关键前提时，再明确指出缺口。\n"
+        "- 回答保持直接、清晰、可落地，优先给出下一步结论或结果。",
+        "编辑与执行要求：\n"
+        "- 修改代码或文件前，先读取相关上下文，理解现有实现与影响范围。\n"
+        "- 优先做最小必要变更，保留用户已有内容与风格，不主动重构无关部分。\n"
+        "- 运行 Python 或 Bash 前，明确目的；优先用于验证、排查、测试、构建或获取事实。\n"
+        "- 工具调用失败时，先根据报错调整参数、路径或方式，再决定是否需要向用户说明。\n"
+        "- 若当前启用工具无法完成任务，应明确说明限制，并提供可行替代方案。",
+        "当前可用工具组：" + tool_summary,
+    ]
+
+    if tool_lines:
+        sections.append("工具使用说明：\n" + "\n".join(tool_lines))
+    else:
+        sections.append("当前未启用任何工具组，只能基于现有对话内容回答。")
+
+    return "\n\n".join(sections)
 
 
 def _parse_prompt_params(values: List[str]) -> Dict[str, str]:
@@ -302,7 +349,9 @@ class AIAgent:
             self.conversation_history.append({"role": "assistant", "content": error_msg})
             return error_msg
 
-    def start_conversation(self, system_prompt: str = "你是一个有用的AI助手。") -> None:
+    def start_conversation(self, system_prompt: Optional[str] = None) -> None:
+        if system_prompt is None:
+            system_prompt = build_default_system_prompt(self.enabled_tools)
         self.conversation_history = []
         self.conversation_history.append({"role": "system", "content": system_prompt})
 
@@ -334,7 +383,7 @@ def _apply_skills_to_agent(
         cli_system_prompt
         or skill.system_prompt
         or get_config_value("OPENAI_SYSTEM_PROMPT", "SYSTEM_PROMPT")
-        or DEFAULT_SYSTEM_PROMPT
+        or build_default_system_prompt(agent.enabled_tools)
     )
     if skill.body:
         base = base + "\n\n" + skill.body
@@ -462,7 +511,7 @@ def main() -> int:
         args.system_prompt
         or (skill.system_prompt if skill else None)
         or get_config_value("OPENAI_SYSTEM_PROMPT", "SYSTEM_PROMPT")
-        or DEFAULT_SYSTEM_PROMPT
+        or build_default_system_prompt(agent.enabled_tools)
     )
     # skill 的 Markdown 正文追加到系统提示末尾
     if skill and skill.body:
@@ -586,7 +635,7 @@ def main() -> int:
             base = (
                 cli_system_prompt
                 or get_config_value("OPENAI_SYSTEM_PROMPT", "SYSTEM_PROMPT")
-                or DEFAULT_SYSTEM_PROMPT
+                or build_default_system_prompt(agent.enabled_tools)
             )
             agent.start_conversation(_render_system_prompt(base, prompt_params))
             print("已卸载 skill，会话已重置。\n")
