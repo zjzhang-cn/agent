@@ -313,6 +313,36 @@ class AIAgent:
         return self.conversation_history
 
 
+def _apply_skills_to_agent(
+    agent: "AIAgent",
+    skill_names: List[str],
+    cli_system_prompt: Optional[str],
+    cli_prompt_params: Dict[str, str],
+) -> SkillDefinition:
+    """加载并应用 skill(s) 到 agent，重置会话，返回合并后的 SkillDefinition。"""
+    loaded: List[SkillDefinition] = []
+    for name in skill_names:
+        sk = load_skill(name)
+        loaded.append(sk)
+    skill = merge_skills(loaded)
+
+    if skill.model:
+        agent.model = skill.model
+    agent.enabled_tools = skill.tools  # None = 全部工具
+
+    base = (
+        cli_system_prompt
+        or skill.system_prompt
+        or get_config_value("OPENAI_SYSTEM_PROMPT", "SYSTEM_PROMPT")
+        or DEFAULT_SYSTEM_PROMPT
+    )
+    if skill.body:
+        base = base + "\n\n" + skill.body
+    effective_params = {**skill.params, **cli_prompt_params}
+    agent.start_conversation(_render_system_prompt(base, effective_params))
+    return skill
+
+
 def main() -> int:
     load_environment()
 
@@ -424,6 +454,9 @@ def main() -> int:
         print(f"错误: {error}")
         return 1
 
+    original_model = agent.model
+    cli_system_prompt = args.system_prompt
+
     # 系统提示词优先级: --system-prompt > skill.system_prompt > 环境变量 > 默认
     base_system_prompt = (
         args.system_prompt
@@ -462,6 +495,7 @@ def main() -> int:
         return 0
 
     print("命令: /reset 重置对话, /history 查看历史, /system <提示词> 更新系统提示")
+    print("Skill: /skill list 列出, /skill load <名称> 加载, /skill unload 卸载, /skill reload 重载")
     print("输入 'quit'、'exit' 或 '退出' 结束对话。")
 
     while True:
@@ -502,6 +536,72 @@ def main() -> int:
                 continue
             agent.start_conversation(system_prompt)
             print("系统提示词已更新并重置会话。\n")
+            continue
+
+        if user_input in ("/skill list", "/skills"):
+            skills = list_skills()
+            if not skills:
+                print("未找到任何 skill。")
+                print(f"搜索目录: {'  '.join(str(p) for p in get_skill_search_dirs())}")
+            else:
+                print(f"找到 {len(skills)} 个 skill:")
+                for sk in skills:
+                    active = " [当前]" if sk.name in selected_skill_names else ""
+                    line = f"  {sk.name}{active}"
+                    if sk.description:
+                        line += f": {sk.description}"
+                    if sk.model:
+                        line += f"  [model={sk.model}]"
+                    if sk.tools is not None:
+                        line += f"  [tools={','.join(sk.tools)}]"
+                    print(line)
+            print()
+            continue
+
+        if user_input.startswith("/skill load "):
+            names = [n for n in user_input[len("/skill load "):].strip().split() if n]
+            if not names:
+                print("用法: /skill load <skill名称> [skill名称2 ...]\n")
+                continue
+            try:
+                new_skill = _apply_skills_to_agent(agent, names, cli_system_prompt, prompt_params)
+                selected_skill_names = names
+                print(f"已加载 skill: {new_skill.name}")
+                if new_skill.description:
+                    print(f"  {new_skill.description}")
+                if agent.enabled_tools is not None:
+                    print(f"  工具组: {agent.enabled_tools}")
+                print("会话已重置。\n")
+            except FileNotFoundError as e:
+                print(f"错误: {e}\n")
+            continue
+
+        if user_input == "/skill unload":
+            if not selected_skill_names:
+                print("当前没有加载任何 skill。\n")
+                continue
+            selected_skill_names = []
+            agent.model = original_model
+            agent.enabled_tools = None
+            base = (
+                cli_system_prompt
+                or get_config_value("OPENAI_SYSTEM_PROMPT", "SYSTEM_PROMPT")
+                or DEFAULT_SYSTEM_PROMPT
+            )
+            agent.start_conversation(_render_system_prompt(base, prompt_params))
+            print("已卸载 skill，会话已重置。\n")
+            continue
+
+        if user_input == "/skill reload":
+            if not selected_skill_names:
+                print("当前没有加载任何 skill。\n")
+                continue
+            try:
+                new_skill = _apply_skills_to_agent(agent, selected_skill_names, cli_system_prompt, prompt_params)
+                print(f"已重载 skill: {new_skill.name}")
+                print("会话已重置。\n")
+            except FileNotFoundError as e:
+                print(f"错误: {e}\n")
             continue
 
         try:
