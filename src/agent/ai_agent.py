@@ -105,6 +105,14 @@ def _print_available_tools() -> None:
         print(f"\n当前配置默认启用工具组: {summary}")
 
 
+def _format_tool_log_line(tool_name: str, arguments: Dict[str, Any]) -> str:
+    if tool_name == "browser_use":
+        action = str(arguments.get("action", "")).strip()
+        if action:
+            return f"TOOL: {tool_name} (action={action})"
+    return f"TOOL: {tool_name}"
+
+
 # 结束对话的关键词
 _END_CONVERSATION_KEYWORDS = [
     "<<再见>>",
@@ -455,7 +463,12 @@ class AIAgent:
             for tool_call in tool_calls:
                 function = tool_call.get("function", {})
                 tool_name = function.get("name", "unknown")
-                print(f"\nTOOL: {tool_name}")
+                raw_arguments = str(function.get("arguments", "{}"))
+                arguments = parse_tool_arguments(raw_arguments)
+                if "__error__" in arguments:
+                    print(f"\nTOOL: {tool_name}")
+                else:
+                    print(f"\n{_format_tool_log_line(tool_name, arguments)}")
                 self._execute_tool_and_append(tool_call)
 
             print()
