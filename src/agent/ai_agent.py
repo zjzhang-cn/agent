@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from openai import OpenAI
 
 from .bash_exec import BASH_EXEC_TOOLS, dispatch_bash_exec_tool
+from .browser_use import BROWSER_USE_TOOLS, dispatch_browser_use_tool
 from .config import (
     get_config_value,
     load_environment,
@@ -27,12 +28,19 @@ from .streaming import (
     parse_tool_arguments,
 )
 
-_DEFAULT_TOOL_GROUP_ORDER = ["file_io", "dir_io", "python_exec", "bash_exec"]
+_DEFAULT_TOOL_GROUP_ORDER = [
+    "file_io",
+    "dir_io",
+    "python_exec",
+    "bash_exec",
+    "browser_use",
+]
 _DEFAULT_TOOL_GUIDANCE = {
     "file_io": "- 文件工具：可以读取、写入、编辑、追加文本文件。修改前优先读取相关文件，变更应保持最小且避免误改无关内容。",
     "dir_io": "- 目录工具：可以列出、创建、删除、移动、复制目录，以及检查目录是否存在。执行前先确认路径和影响范围。",
     "python_exec": "- Python 工具：可以执行 Python 脚本或代码片段。适合做逻辑验证、生成结果、复现问题；只有在确实需要验证时才执行。",
     "bash_exec": "- Bash 工具：可以执行 Shell 命令。适合检查环境、搜索项目、运行构建或测试命令；命令应尽量具体且可控。",
+    "browser_use": "- 浏览器工具：可以通过 Playwright 进行页面打开、交互、截图、快照、网络与控制台观察。通常先 start/open/snapshot，再根据 ref 做 click/type。",
 }
 
 
@@ -216,12 +224,19 @@ class AIAgent:
                 "dir_io": DIR_IO_TOOLS,
                 "python_exec": PYTHON_EXEC_TOOLS,
                 "bash_exec": BASH_EXEC_TOOLS,
+                "browser_use": BROWSER_USE_TOOLS,
             }
         return cls._TOOL_GROUPS
 
     def _build_request_kwargs(self, stream: bool) -> Dict[str, Any]:
         if self.enabled_tools is None:
-            tools = FILE_IO_TOOLS + DIR_IO_TOOLS + PYTHON_EXEC_TOOLS + BASH_EXEC_TOOLS
+            tools = (
+                FILE_IO_TOOLS
+                + DIR_IO_TOOLS
+                + PYTHON_EXEC_TOOLS
+                + BASH_EXEC_TOOLS
+                + BROWSER_USE_TOOLS
+            )
         else:
             groups = self._get_tool_groups()
             tools = [t for g in self.enabled_tools for t in groups.get(g, [])]
@@ -256,6 +271,8 @@ class AIAgent:
                 tool_result = dispatch_python_exec_tool(tool_name, arguments)
             if tool_result.startswith("Error: Unknown tool"):
                 tool_result = dispatch_bash_exec_tool(tool_name, arguments)
+            if tool_result.startswith("Error: Unknown tool"):
+                tool_result = dispatch_browser_use_tool(tool_name, arguments)
 
         tool_call_id = str(tool_call.get("id", ""))
         self.conversation_history.append(

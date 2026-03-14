@@ -16,7 +16,7 @@ Skill 文件字段（Markdown frontmatter 或 TOML 顶层）：
   description   : str  - 简短描述
   system_prompt : str  - 系统提示词模板，支持 {placeholder} 占位符
   model         : str  - 覆盖默认模型
-    tools         : list - 启用的工具组 ["file_io", "dir_io", "python_exec", "bash_exec"]
+    tools         : list - 启用的工具组 ["file_io", "dir_io", "python_exec", "bash_exec", "browser_use"]
   params        : dict - 提示词默认参数（可被 --prompt-param 覆盖）
 
 Markdown 正文 (frontmatter 之后的部分) 会追加到 system_prompt 末尾。
@@ -76,7 +76,7 @@ def get_skill_search_dirs() -> List[Path]:
     """返回当前生效的技能搜索目录（按当前环境变量动态解析）。"""
     return _resolve_skill_search_dirs()
 
-ALL_TOOL_GROUPS = {"file_io", "dir_io", "python_exec", "bash_exec"}
+ALL_TOOL_GROUPS = {"file_io", "dir_io", "python_exec", "bash_exec", "browser_use"}
 
 
 # ---------------------------------------------------------------------------
