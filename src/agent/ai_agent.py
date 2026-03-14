@@ -121,8 +121,18 @@ def _get_configured_enabled_tools() -> Optional[List[str]]:
 def _format_tool_log_line(tool_name: str, arguments: Dict[str, Any]) -> str:
     if tool_name == "browser_use":
         action = str(arguments.get("action", "")).strip()
-        if action:
-            return f"TOOL: {tool_name} (action={action})"
+        if not action:
+            return f"TOOL: {tool_name}"
+
+        if action == "click":
+            details: List[str] = [f"action={action}"]
+            for key in ("page_id", "ref", "selector", "frame_selector", "timeout_ms"):
+                value = arguments.get(key)
+                if value not in (None, ""):
+                    details.append(f"{key}={value}")
+            return f"TOOL: {tool_name} (" + ", ".join(details) + ")"
+
+        return f"TOOL: {tool_name} (action={action})"
     return f"TOOL: {tool_name}"
 
 
