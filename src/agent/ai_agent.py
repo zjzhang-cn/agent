@@ -86,6 +86,13 @@ def _build_help_content(enabled_tools: Optional[List[str]] = None) -> str:
     return help_text
 
 
+def _is_env_model_configured() -> bool:
+    configured_model = get_config_value("OPENAI_MODEL")
+    if configured_model is None:
+        return False
+    return bool(str(configured_model).strip())
+
+
 _DEFAULT_TOOL_GROUP_ORDER = [
     "file_io",
     "dir_io",
@@ -664,7 +671,7 @@ def _apply_skills_to_agent(
         loaded.append(sk)
     skill = merge_skills(loaded)
 
-    if skill.model:
+    if skill.model and not _is_env_model_configured():
         agent.model = skill.model
     agent.enabled_tools = skill.tools if skill.tools is not None else agent.default_enabled_tools
 
@@ -681,7 +688,7 @@ def _apply_skills_to_agent(
     return skill
 
 
-def main() -> int:
+def agent_main() -> int:
     load_environment()
 
     parser = argparse.ArgumentParser(description="AI Agent CLI")
@@ -809,9 +816,9 @@ def main() -> int:
         print(f"错误: {error}")
         return 1
 
-    # 构建 agent，skill 可覆盖 model 与工具组
+    # 构建 agent；当环境未配置 OPENAI_MODEL 时，skill 才可覆盖 model
     agent_kwargs: Dict[str, Any] = {}
-    if skill and skill.model:
+    if skill and skill.model and not _is_env_model_configured():
         agent_kwargs["model"] = skill.model
     if skill and skill.tools is not None:
         agent_kwargs["enabled_tools"] = skill.tools

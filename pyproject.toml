@@ -51,8 +51,8 @@ dev = [
 ]
 
 [project.scripts]
-agent = "agent.ai_agent:main"
-ai-agent = "agent.ai_agent:main"
+agent = "agent.cli:main"
+ai-agent = "agent.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/zjzhang/agent"
