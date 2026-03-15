@@ -1,7 +1,15 @@
+import logging
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+# 配置日志
+logger = logging.getLogger(__name__)
+
+# Python 代码日志目录
+PYTHON_CODE_LOG_DIR = Path.home() / ".agent" / "python_code_logs"
 
 WORKING_DIR = Path.cwd()
 SCRIPT_OUTPUT_MAX_CHARS = 12000
@@ -86,6 +94,21 @@ def _truncate_output(text: str, max_chars: int = SCRIPT_OUTPUT_MAX_CHARS) -> str
     )
 
 
+def _save_code_to_log(code: str) -> Path:
+    """保存 Python 代码到日志文件"""
+    # 创建日志目录
+    PYTHON_CODE_LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+    # 生成文件名：timestamp_code.py
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = PYTHON_CODE_LOG_DIR / f"{timestamp}_code.py"
+
+    # 写入文件
+    log_file.write_text(code, encoding="utf-8")
+
+    return log_file
+
+
 def run_python_script_tool(
     script_path: str,
     args: Optional[List[str]] = None,
@@ -128,6 +151,14 @@ def run_python_script_tool(
 
     command = [sys.executable, str(resolved_script), *normalized_args]
 
+    logger.info(
+        "run_python_script: script=%s, cwd=%s, args=%s, timeout=%ds",
+        resolved_script,
+        resolved_cwd,
+        normalized_args,
+        timeout_seconds,
+    )
+
     try:
         completed = subprocess.run(
             command,
@@ -138,6 +169,11 @@ def run_python_script_tool(
             check=False,
         )
     except subprocess.TimeoutExpired as error:
+        logger.error(
+            "run_python_script timed out: script=%s, timeout=%ds",
+            resolved_script,
+            timeout_seconds,
+        )
         return (
             "Error: Python script execution timed out.\n"
             f"script={resolved_script}\n"
@@ -146,11 +182,20 @@ def run_python_script_tool(
             f"partial_stderr={_truncate_output(error.stderr or '')}"
         )
     except Exception as error:
+        logger.error("run_python_script failed: script=%s, error=%s", resolved_script, error)
         return f"Error: Run python script failed due to\n{error}"
 
     stdout_text = _truncate_output(completed.stdout or "")
     stderr_text = _truncate_output(completed.stderr or "")
     command_text = " ".join(command)
+
+    logger.info(
+        "run_python_script completed: script=%s, exit_code=%d, stdout_len=%d, stderr_len=%d",
+        resolved_script,
+        completed.returncode,
+        len(completed.stdout or ""),
+        len(completed.stderr or ""),
+    )
 
     return (
         f"script={resolved_script}\n"
@@ -188,6 +233,17 @@ def run_python_code_tool(
 
     command = [sys.executable, "-c", code]
 
+    # 保存代码到日志文件
+    log_file = _save_code_to_log(code)
+    logger.info("run_python_code: saved to %s", log_file)
+
+    logger.info(
+        "run_python_code: cwd=%s, timeout=%ds, code_len=%d",
+        resolved_cwd,
+        timeout_seconds,
+        len(code),
+    )
+
     try:
         completed = subprocess.run(
             command,
@@ -198,6 +254,9 @@ def run_python_code_tool(
             check=False,
         )
     except subprocess.TimeoutExpired as error:
+        logger.error(
+            "run_python_code timed out: timeout=%ds", timeout_seconds
+        )
         return (
             "Error: Python code execution timed out.\n"
             f"timeout_seconds={timeout_seconds}\n"
@@ -205,11 +264,19 @@ def run_python_code_tool(
             f"partial_stderr={_truncate_output(error.stderr or '')}"
         )
     except Exception as error:
+        logger.error("run_python_code failed: error=%s", error)
         return f"Error: Run python code failed due to\n{error}"
 
     stdout_text = _truncate_output(completed.stdout or "")
     stderr_text = _truncate_output(completed.stderr or "")
     command_text = " ".join(command)
+
+    logger.info(
+        "run_python_code completed: exit_code=%d, stdout_len=%d, stderr_len=%d",
+        completed.returncode,
+        len(completed.stdout or ""),
+        len(completed.stderr or ""),
+    )
 
     return (
         f"cwd={resolved_cwd}\n"

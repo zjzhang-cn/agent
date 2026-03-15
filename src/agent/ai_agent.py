@@ -133,6 +133,21 @@ def _format_tool_log_line(tool_name: str, arguments: Dict[str, Any]) -> str:
             return f"TOOL: {tool_name} (" + ", ".join(details) + ")"
 
         return f"TOOL: {tool_name} (action={action})"
+
+    if tool_name == "run_bash_command":
+        command = arguments.get("command", "")
+        return f"TOOL: {tool_name} (command={command})"
+
+    if tool_name == "run_python_script":
+        script_path = arguments.get("script_path", "")
+        return f"TOOL: {tool_name} (script={script_path})"
+
+    if tool_name == "run_python_code":
+        code = arguments.get("code", "")
+        # 只显示第一行或截断
+        code_preview = code.split("\n")[0][:50] if code else ""
+        return f"TOOL: {tool_name} (code={code_preview})"
+
     return f"TOOL: {tool_name}"
 
 

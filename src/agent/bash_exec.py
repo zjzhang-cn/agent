@@ -1,6 +1,10 @@
+import logging
 import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+# 配置日志
+logger = logging.getLogger(__name__)
 
 WORKING_DIR = Path.cwd()
 COMMAND_OUTPUT_MAX_CHARS = 12000
@@ -81,6 +85,13 @@ def run_bash_command_tool(
     bash_path = "/bin/bash" if Path("/bin/bash").exists() else "bash"
     shell_command = [bash_path, "-lc", command]
 
+    logger.info(
+        "run_bash_command: cwd=%s, timeout=%ds, command=%s",
+        resolved_cwd,
+        timeout_seconds,
+        command,
+    )
+
     try:
         completed = subprocess.run(
             shell_command,
@@ -91,6 +102,11 @@ def run_bash_command_tool(
             check=False,
         )
     except subprocess.TimeoutExpired as error:
+        logger.error(
+            "run_bash_command timed out: command=%s, timeout=%ds",
+            command,
+            timeout_seconds,
+        )
         return (
             "Error: Bash command execution timed out.\n"
             f"cwd={resolved_cwd}\n"
@@ -99,10 +115,18 @@ def run_bash_command_tool(
             f"partial_stderr={_truncate_output(error.stderr or '')}"
         )
     except Exception as error:
+        logger.error("run_bash_command failed: command=%s, error=%s", command, error)
         return f"Error: Run bash command failed due to\n{error}"
 
     stdout_text = _truncate_output(completed.stdout or "")
     stderr_text = _truncate_output(completed.stderr or "")
+
+    logger.info(
+        "run_bash_command completed: exit_code=%d, stdout_len=%d, stderr_len=%d",
+        completed.returncode,
+        len(completed.stdout or ""),
+        len(completed.stderr or ""),
+    )
 
     return (
         f"cwd={resolved_cwd}\n"
