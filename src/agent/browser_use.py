@@ -403,64 +403,103 @@ def _build_snapshot(page, frame_selector: str = "") -> tuple[str, Dict[str, Dict
 
     refs: Dict[str, Dict[str, Any]] = {}
     lines: List[str] = []
+    # 用于跟踪名称冲突，格式: (clean_name, role) -> count
+    name_counter: Dict[tuple[str, str], int] = {}
 
-    for idx in range(count):
-        item = locator.nth(idx)
+    # 批量处理元素：先筛选可见元素，再批量提取信息
+    # 使用 :is() 伪类同时匹配 disabled 和 aria-disabled
+    visible_locator = locator.filter(has_not=root.locator(":is([disabled], [aria-disabled='true'])"))
+    visible_count = min(visible_locator.count(), 200)
+
+    for idx in range(visible_count):
+        item = visible_locator.nth(idx)
         try:
-            if not item.is_visible(timeout=500):
+            # 检查位置和大小，确保元素真正可见
+            box = item.bounding_box()
+            if not box or box["width"] < 1 or box["height"] < 1:
                 continue
-            role_attr = item.get_attribute("role") or ""
-            tag = item.evaluate("el => el.tagName ? el.tagName.toLowerCase() : ''")
-            input_type = item.get_attribute("type") or ""
+
+            # 单次 JS 调用获取所有信息
+            info = item.evaluate("""
+                el => {
+                    const tag = el.tagName ? el.tagName.toLowerCase() : '';
+                    const inputType = el.getAttribute('type') || '';
+                    const roleAttr = el.getAttribute('role') || '';
+
+                    // 获取名称
+                    let name = el.getAttribute('aria-label') || el.innerText || (el.value || '') + '' || el.getAttribute('placeholder') || '';
+                    name = name.trim().replace(/\\s+/g, ' ').slice(0, 120);
+
+                    // 生成选择器
+                    let selector = '';
+                    const stableId = el.getAttribute('data-testid') || el.getAttribute('data-id');
+                    if (stableId) {
+                        selector = el.getAttribute('data-testid') ? `[data-testid="${stableId}"]` : `[data-id="${stableId}"]`;
+                    } else if (el.id) {
+                        selector = '#' + (window.CSS ? CSS.escape(el.id) : el.id);
+                    } else {
+                        const esc = (s) => window.CSS ? CSS.escape(s) : s;
+                        let path = [];
+                        let node = el;
+                        while (node && node.nodeType === 1 && path.length < 6) {
+                            let sel = node.tagName.toLowerCase();
+                            if (node.className && typeof node.className === 'string') {
+                                const cls = node.className.trim().split(/\\s+/).filter(Boolean).slice(0, 2);
+                                if (cls.length) sel += '.' + cls.map(esc).join('.');
+                            }
+                            const parent = node.parentElement;
+                            if (parent) {
+                                const siblings = Array.from(parent.children).filter(c => c.tagName === node.tagName);
+                                if (siblings.length > 1) sel += `:nth-of-type(${siblings.indexOf(node) + 1})`;
+                            }
+                            path.unshift(sel);
+                            node = parent;
+                        }
+                        selector = path.join(' > ');
+                    }
+
+                    const disabled = el.hasAttribute('disabled') || (tag === 'input' && el.getAttribute('readonly'));
+
+                    return { tag, inputType, roleAttr, name, selector, disabled };
+                }
+            """)
+
+            tag = info["tag"]
+            input_type = info["inputType"]
+            role_attr = info["roleAttr"]
+            name = info["name"]
+            selector = info["selector"]
+            disabled = info["disabled"]
+
+            if disabled:
+                continue
+
             role = _infer_role(str(tag), str(input_type), str(role_attr))
-            # 获取名称的优先级：aria-label > innerText > value > placeholder
-            name = item.evaluate(
-                "el => ("
-                "el.getAttribute('aria-label') || "
-                "el.innerText || "
-                "el.value || "
-                "el.getAttribute('placeholder') || ''"
-                ").trim().replace(/\\s+/g, ' ').slice(0, 120)"
-            )
-            # 获取标签的属性, 生成一个简洁的 CSS Selector，优先使用 id，如果没有则使用标签名、类名和 nth-of-type 组合，最多包含 6 层
-            selector = item.evaluate(
-                "el => {"
-                "const esc = (s) => window.CSS && CSS.escape ? CSS.escape(s) : s;"
-                "if (el.id) return '#' + esc(el.id);"
-                "let path = [];"
-                "let node = el;"
-                "while (node && node.nodeType === 1 && path.length < 6) {"
-                "let sel = node.tagName.toLowerCase();"
-                "if (node.className && typeof node.className === 'string') {"
-                "const cls = node.className.trim().split(/\\s+/).filter(Boolean).slice(0, 2);"
-                "if (cls.length) sel += '.' + cls.map(esc).join('.');"
-                "}"
-                "const parent = node.parentElement;"
-                "if (parent) {"
-                "const siblings = Array.from(parent.children).filter(c => c.tagName === node.tagName);"
-                "if (siblings.length > 1) sel += `:nth-of-type(${siblings.indexOf(node) + 1})`;"
-                "}"
-                "path.unshift(sel);"
-                "node = parent;"
-                "}"
-                "return path.join(' > ');"
-                "}"
-            )
+
+            # 处理名称冲突：同一 role + name 组合使用索引区分
+            name_key = (name, role)
+            name_counter[name_key] = name_counter.get(name_key, 0) + 1
+            name_idx = name_counter[name_key]
+
+            ref = f"e{idx + 1}"
+            clean_name = str(name or "").strip()
+            clean_selector = str(selector or "").strip()
+
+            refs[ref] = {
+                "role": role,
+                "name": clean_name,
+                "selector": clean_selector,
+                "nth": name_idx,
+                "frame_selector": frame_selector.strip() if frame_selector else "",
+                "tag": tag,
+            }
+
+            # 在输出中添加索引以区分同名元素
+            display_name = clean_name if name_idx == 1 else f"{clean_name} ({name_idx})"
+            lines.append(f'ref={ref} role={role} frame_selector="{frame_selector}" target="{display_name}" selector="{clean_selector}"')
         except PlaywrightError:
             continue
 
-        ref = f"e{len(refs) + 1}"
-        clean_name = str(name or "").strip()
-        clean_selector = str(selector or "").strip()
-        refs[ref] = {
-            "role": role,
-            "name": clean_name,
-            "selector": clean_selector,
-            "nth": 0,
-            "frame_selector": frame_selector.strip() if frame_selector else "",
-        }
-
-        lines.append(f'[{ref}] role={role} frame_selector="{frame_selector}" target="{clean_name}" selector="{clean_selector}"')
     if not lines:
         return "(no interactive elements found)", refs
     return "\n".join(lines), refs
