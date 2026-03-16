@@ -97,7 +97,7 @@ _DEFAULT_TOOL_GUIDANCE = {
     "file_io": "- 文件工具：可以读取、写入、编辑、追加文本文件。修改前优先读取相关文件，变更应保持最小且避免误改无关内容。",
     "dir_io": "- 目录工具：可以列出、创建、删除、移动、复制目录，以及检查目录是否存在。执行前先确认路径和影响范围。",
     "python_exec": "- Python 工具：可以执行 Python 脚本或代码片段。适合做逻辑验证、生成结果、复现问题；只有在确实需要时才执行。",
-    "bash_exec": "- Bash 工具：可以执行 Shell 命令。适合检查环境、搜索项目、运行构建或测试命令；命令应尽量具体且可控。",
+    "bash_exec": "- Shell 工具：可以执行跨平台 Shell 命令。Windows 默认使用 PowerShell，类 Unix 默认使用 Bash；也可通过 shell 参数指定 auto/bash/powershell/cmd。",
     "browser_use": (
         "- 浏览器工具：通过 Playwright 执行网页自动化（页面打开、交互、截图、快照、网络与控制台观察）。"
         "推荐流程：start -> open/navigate -> snapshot -> 使用 ref 执行 click/type/hover/select_option -> 必要时 screenshot/pdf -> stop。"
@@ -143,7 +143,7 @@ def _format_tool_log_line(tool_name: str, arguments: Dict[str, Any]) -> str:
 
         return f"TOOL: {tool_name} (action={action})"
 
-    if tool_name == "run_bash_command":
+    if tool_name in ("run_bash_command", "run_shell_command"):
         command = arguments.get("command", "")
         return f"TOOL: {tool_name} (command={command})"
 

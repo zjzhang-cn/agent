@@ -5,7 +5,7 @@
 ## 功能特性
 
 - 多轮对话：内置会话历史管理，可按轮数自动裁剪。
-- 工具调用：支持文件、目录、Python、Bash 与浏览器自动化工具。
+- 工具调用：支持文件、目录、Python、Shell（Windows 默认 PowerShell）与浏览器自动化工具。
 - 文件上传：支持上传本地文件到 Files API，并在后续消息中附带 `file_id` 引用。
 - Skill 机制：可按需加载单个或多个 Skill，自动合并提示词、参数与工具组。
 - 流式输出：CLI 默认流式返回模型响应，支持中间工具调用回显。
@@ -210,7 +210,7 @@ exit
 - `file_io`：`read_file`、`write_file`、`edit_file`、`append_file`
 - `dir_io`：`list_directory`、`create_directory`、`remove_directory`、`move_directory`、`copy_directory`
 - `python_exec`：`run_python_script`、`run_python_code`
-- `bash_exec`：`run_bash_command`
+- `bash_exec`：`run_bash_command`、`run_shell_command`（支持 `shell=auto|bash|powershell|cmd`）
 - `browser_use`：`browser_use(action=...)`
 
 若需关闭默认工具，可设置 `OPENAI_ENABLED_TOOLS=[]`。
