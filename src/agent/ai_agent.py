@@ -1,8 +1,10 @@
 import os
+import traceback
 from typing import Any, Dict, List, Optional, Tuple
 import platform
 import datetime
 
+import httpx
 from openai import OpenAI
 
 from .bash_exec import (
@@ -33,11 +35,86 @@ _HELP_COMMANDS = ["help", "帮助", "?", "？", "指令", "命令", "help me", "
 
 def _log_conversation(user_input: str, assistant_reply: str, log_file_path: str = "conversation.log"):
     """记录对话到日志文件"""
+    if not log_file_path:
+        log_file_path = "conversation.log"
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    with open(log_file_path, "a", encoding="utf-8") as log_file:
-        log_file.write(f"[{timestamp}] 用户: {user_input}\n")
-        log_file.write(f"[{timestamp}] AI: {assistant_reply}\n")
-        log_file.write("-" * 50 + "\n")
+    try:
+        with open(log_file_path, "a", encoding="utf-8") as log_file:
+            log_file.write(f"[{timestamp}] 用户: {user_input}\n")
+            log_file.write(f"[{timestamp}] AI: {assistant_reply}\n")
+            log_file.write("-" * 50 + "\n")
+    except Exception as error:
+        print(f"日志写入失败: {error}")
+
+
+def _format_exception_details(error: Exception) -> str:
+    """格式化异常详情，便于定位 OpenAI 调用问题。"""
+    error_module = type(error).__module__
+    if error_module.startswith("openai"):
+        title = "调用 OpenAI 接口时发生异常"
+    else:
+        title = "发生异常"
+
+    lines = [
+        f"{title}:",
+        f"异常类型: {type(error).__name__}",
+        f"异常信息: {error}",
+    ]
+
+    for attr, label in (
+        ("status_code", "HTTP 状态码"),
+        ("request_id", "请求 ID"),
+        ("code", "错误码"),
+        ("param", "错误参数"),
+        ("type", "错误类型"),
+    ):
+        value = getattr(error, attr, None)
+        if value not in (None, ""):
+            lines.append(f"{label}: {value}")
+
+    body = getattr(error, "body", None)
+    if body not in (None, ""):
+        lines.append(f"响应体: {body}")
+
+    response = getattr(error, "response", None)
+    if response is not None:
+        response_status = getattr(response, "status_code", None)
+        if response_status not in (None, ""):
+            lines.append(f"响应状态码: {response_status}")
+
+    if error.__cause__:
+        lines.append(f"原始原因: {type(error.__cause__).__name__}: {error.__cause__}")
+
+    traceback_text = traceback.format_exc().strip()
+    if traceback_text and traceback_text != "NoneType: None":
+        lines.append("Traceback:")
+        lines.append(traceback_text)
+
+    return "\n".join(lines)
+
+
+def _build_openai_http_client() -> Optional[httpx.Client]:
+    """根据环境变量构建 OpenAI 的 HTTP 客户端（支持自签名证书信任）。"""
+    verify_ssl = parse_bool(
+        get_config_value("OPENAI_SSL_VERIFY", "OPENAI_TLS_VERIFY"),
+        default=True,
+    )
+    cert_path = get_config_value("OPENAI_CA_BUNDLE", "SSL_CERT_FILE")
+
+    if cert_path:
+        cert_path = os.path.abspath(os.path.expanduser(cert_path))
+        if not os.path.isfile(cert_path):
+            raise ValueError(f"OPENAI_CA_BUNDLE 指定的证书文件不存在: {cert_path}")
+
+    if not verify_ssl:
+        print("警告: 已禁用 OpenAI TLS 证书校验（OPENAI_SSL_VERIFY=false），仅建议在内网调试场景使用。")
+        return httpx.Client(verify=False)
+
+    if cert_path:
+        print(f"已加载 OpenAI CA 证书: {cert_path}")
+        return httpx.Client(verify=cert_path)
+
+    return None
 
 def _is_help_command(user_input: str) -> bool:
     """检测用户输入是否为帮助命令"""
@@ -314,14 +391,22 @@ class AIAgent:
             )
             
         # 解析日志文件路径配置
-        self.log_file_path = log_file_path or get_config_value("LOG_FILE_PATH", "conversation.log")
+        self.log_file_path = (
+            log_file_path
+            or get_config_value("LOG_FILE_PATH")
+            or "conversation.log"
+        )
 
         if not resolved_api_key:
             raise ValueError("请在环境变量或 .env 文件中设置 OPENAI_API_KEY")
 
-        client_kwargs = {"api_key": resolved_api_key}
+        client_kwargs: Dict[str, Any] = {"api_key": resolved_api_key}
         if resolved_base_url:
             client_kwargs["base_url"] = resolved_base_url
+
+        http_client = _build_openai_http_client()
+        if http_client is not None:
+            client_kwargs["http_client"] = http_client
 
         self.client = OpenAI(**client_kwargs)
         self.model = resolved_model
@@ -345,6 +430,7 @@ class AIAgent:
             raise FileNotFoundError(f"文件不存在: {file_path}")
 
         last_error: Optional[Exception] = None
+        last_error_text: Optional[str] = None
         for current_purpose in (purpose, "assistants"):
             try:
                 with open(expanded_path, "rb") as fp:
@@ -361,11 +447,14 @@ class AIAgent:
                 return file_info
             except Exception as error:
                 last_error = error
+                last_error_text = _format_exception_details(error)
                 if current_purpose == "assistants":
                     break
 
         assert last_error is not None
-        raise RuntimeError(f"文件上传失败: {last_error}")
+        if last_error_text:
+            raise RuntimeError(f"文件上传失败:\n{last_error_text}") from last_error
+        raise RuntimeError(f"文件上传失败: {last_error}") from last_error
 
     def get_uploaded_files(self) -> List[Dict[str, str]]:
         return list(self.uploaded_files)
@@ -643,7 +732,8 @@ class AIAgent:
             assistant_reply, _ = self._run_with_tools_non_stream(user_input)
             return assistant_reply
         except Exception as error:
-            error_msg = f"发生错误: {error}"
+            error_msg = _format_exception_details(error)
+            print(error_msg)
             
             # 记录错误到日志
             _log_conversation(user_input, error_msg, self.log_file_path)
@@ -662,7 +752,8 @@ class AIAgent:
                 print("AI: ")
             return assistant_reply
         except Exception as error:
-            error_msg = f"发生错误: {error}"
+            error_msg = _format_exception_details(error)
+            print(error_msg)
             
             # 记录错误到日志
             _log_conversation(user_input, error_msg, self.log_file_path)

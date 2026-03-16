@@ -46,6 +46,8 @@ OPENAI_MAX_TOOL_CALL_ROUNDS=8
 OPENAI_ENABLED_TOOLS=file_io,dir_io,python_exec
 OPENAI_INCLUDE_NATIVE_FILE_PARTS=true
 OPENAI_SYSTEM_PROMPT=你是{role}，项目是{project}
+OPENAI_SSL_VERIFY=true
+OPENAI_CA_BUNDLE=/path/to/your/ca.pem
 SKILL_SEARCH_DIRS=skills:.agent/skills:~/.agent/skills
 
 COPAW_BROWSER_HEADED=false
@@ -65,6 +67,8 @@ COPAW_CHROMIUM_EXECUTABLE=/Applications/Google Chrome.app/Contents/MacOS/Google 
 - `OPENAI_ENABLED_TOOLS` / `ENABLED_TOOLS`：默认启用工具组，支持逗号分隔或 JSON 数组。
 - `OPENAI_INCLUDE_NATIVE_FILE_PARTS` / `INCLUDE_NATIVE_FILE_PARTS`：是否附带原生 `file` 消息片段，默认开启。
 - `OPENAI_SYSTEM_PROMPT` / `SYSTEM_PROMPT`：默认系统提示词模板。
+- `OPENAI_SSL_VERIFY` / `OPENAI_TLS_VERIFY`：是否校验 TLS 证书，默认 `true`。
+- `OPENAI_CA_BUNDLE` / `SSL_CERT_FILE`：自定义 CA 证书路径（用于信任代理或网关自签名证书）。
 - `SKILL_SEARCH_DIRS`：Skill 搜索目录（macOS/Linux 使用 `:` 分隔，Windows 使用 `;` 分隔）。
 - `COPAW_BROWSER_HEADED` / `BROWSER_HEADED`：浏览器默认是否可见。
 - `COPAW_BROWSER_BRING_TO_FRONT` / `BROWSER_BRING_TO_FRONT`：可见模式下是否前置标签页。
