@@ -67,6 +67,12 @@ BASH_EXEC_TOOLS: List[Dict[str, Any]] = [
 _SUPPORTED_SHELLS = {"auto", "bash", "powershell", "cmd"}
 
 
+def _resolve_shell_kind(shell: str) -> str:
+    if shell == "auto":
+        return "powershell" if os.name == "nt" else "bash"
+    return shell
+
+
 def _resolve_path(path_str: str) -> Path:
     path = Path(path_str).expanduser()
     if path.is_absolute():
@@ -112,9 +118,7 @@ def _normalize_shell_name(shell: Optional[str]) -> str:
 
 
 def _resolve_shell_runner(shell: str) -> Tuple[List[str], str]:
-    resolved_shell = shell
-    if resolved_shell == "auto":
-        resolved_shell = "powershell" if os.name == "nt" else "bash"
+    resolved_shell = _resolve_shell_kind(shell)
 
     if resolved_shell == "bash":
         bash_candidate = "/bin/bash" if Path("/bin/bash").exists() else shutil.which("bash")
@@ -147,6 +151,18 @@ def _resolve_shell_runner(shell: str) -> Tuple[List[str], str]:
     raise ValueError(
         f"Unsupported shell {shell!r}. Supported values: {', '.join(sorted(_SUPPORTED_SHELLS))}."
     )
+
+
+def get_effective_shell_name(shell: Optional[str] = None) -> str:
+    """Resolve the effective shell kind for logging/display.
+
+    This returns the actual shell type that will be targeted (e.g. auto -> powershell on
+    Windows, auto -> bash on Unix-like systems), without checking executable availability.
+    """
+    requested_shell = _normalize_shell_name(shell)
+    if requested_shell not in _SUPPORTED_SHELLS:
+        return requested_shell
+    return _resolve_shell_kind(requested_shell)
 
 
 def run_bash_command_tool(

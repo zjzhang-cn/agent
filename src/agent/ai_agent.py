@@ -5,7 +5,11 @@ import datetime
 
 from openai import OpenAI
 
-from .bash_exec import BASH_EXEC_TOOLS, dispatch_bash_exec_tool
+from .bash_exec import (
+    BASH_EXEC_TOOLS,
+    dispatch_bash_exec_tool,
+    get_effective_shell_name,
+)
 from .browser_use import BROWSER_USE_TOOLS, dispatch_browser_use_tool
 from .config import (
     get_config_value,
@@ -145,7 +149,8 @@ def _format_tool_log_line(tool_name: str, arguments: Dict[str, Any]) -> str:
 
     if tool_name in ("run_bash_command", "run_shell_command"):
         command = arguments.get("command", "")
-        return f"TOOL: {tool_name} (command={command})"
+        effective_shell = get_effective_shell_name(arguments.get("shell"))
+        return f"TOOL: {tool_name} (shell={effective_shell}, command={command})"
 
     if tool_name == "run_python_script":
         script_path = arguments.get("script_path", "")
