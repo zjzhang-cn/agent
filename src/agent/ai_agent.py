@@ -1,5 +1,7 @@
 import os
 from typing import Any, Dict, List, Optional, Tuple
+import platform
+import datetime
 
 from openai import OpenAI
 
@@ -25,6 +27,13 @@ from .streaming import (
 # 系统指令帮助命令
 _HELP_COMMANDS = ["help", "帮助", "?", "？", "指令", "命令", "help me", "help!"]
 
+def _log_conversation(user_input: str, assistant_reply: str, log_file_path: str = "conversation.log"):
+    """记录对话到日志文件"""
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with open(log_file_path, "a", encoding="utf-8") as log_file:
+        log_file.write(f"[{timestamp}] 用户: {user_input}\n")
+        log_file.write(f"[{timestamp}] AI: {assistant_reply}\n")
+        log_file.write("-" * 50 + "\n")
 
 def _is_help_command(user_input: str) -> bool:
     """检测用户输入是否为帮助命令"""
@@ -87,7 +96,7 @@ _DEFAULT_TOOL_GROUP_ORDER = [
 _DEFAULT_TOOL_GUIDANCE = {
     "file_io": "- 文件工具：可以读取、写入、编辑、追加文本文件。修改前优先读取相关文件，变更应保持最小且避免误改无关内容。",
     "dir_io": "- 目录工具：可以列出、创建、删除、移动、复制目录，以及检查目录是否存在。执行前先确认路径和影响范围。",
-    "python_exec": "- Python 工具：可以执行 Python 脚本或代码片段。适合做逻辑验证、生成结果、复现问题；只有在确实需要验证时才执行。",
+    "python_exec": "- Python 工具：可以执行 Python 脚本或代码片段。适合做逻辑验证、生成结果、复现问题；只有在确实需要时才执行。",
     "bash_exec": "- Bash 工具：可以执行 Shell 命令。适合检查环境、搜索项目、运行构建或测试命令；命令应尽量具体且可控。",
     "browser_use": (
         "- 浏览器工具：通过 Playwright 执行网页自动化（页面打开、交互、截图、快照、网络与控制台观察）。"
@@ -175,8 +184,42 @@ def build_default_system_prompt(enabled_tools: Optional[List[str]] = None) -> st
     tool_lines = [_DEFAULT_TOOL_GUIDANCE[name] for name in tool_groups]
     tool_summary = "、".join(tool_groups) if tool_groups else "无"
 
+    # 添加主机环境信息
+    system_info = {
+        "os_type": platform.system(),
+        "os_release": platform.release(),
+        "os_version": platform.version(),
+        "machine_arch": platform.machine(),
+        "processor": platform.processor(),
+        "platform_details": platform.platform(),
+    }
+    
+    # 构建环境描述
+    env_description = f"主机环境信息：\n"
+    env_description += f"- 操作系统类型: {system_info['os_type']}\n"
+    env_description += f"- 操作系统版本: {system_info['os_version']}\n"
+    env_description += f"- 操作系统发行版: {system_info['platform_details']}\n"
+    env_description += f"- 系统架构: {system_info['machine_arch']}\n"
+    if system_info['processor']:
+        env_description += f"- 处理器: {system_info['processor']}\n"
+    
+    # 检测命令解释器类型
+    shell_type = os.environ.get('SHELL', 'Unknown')
+    if platform.system() == "Windows":
+        # Windows 系统可能使用 PowerShell 或 CMD
+        if os.environ.get('PSModulePath'):
+            shell_info = "命令解释器类型: PowerShell"
+        else:
+            shell_info = f"命令解释器类型: {os.environ.get('COMSPEC', 'CMD')}"
+    else:
+        # Unix-like 系统使用 SHELL 环境变量
+        shell_info = f"命令解释器类型: {shell_type}"
+    
+    env_description += f"- {shell_info}\n"
+
     sections = [
         "你是一个面向工程任务的 AI 助手，负责在多轮对话中准确理解需求、调用可用工具，并给出可执行、可验证的结果。",
+        env_description,
         "工作原则：\n"
         "- 先理解目标，再决定是否需要工具；不要为了使用工具而使用工具。\n"
         "- 涉及项目文件、目录结构、代码实现、运行结果或环境状态时，优先通过工具获取事实，不要猜测。\n"
@@ -233,6 +276,7 @@ class AIAgent:
         max_tool_call_rounds: Optional[int] = None,
         enabled_tools: Optional[List[str]] = None,
         include_native_file_parts: Optional[bool] = None,
+        log_file_path: Optional[str] = None,  # 新增参数
     ):
         load_environment()
 
@@ -263,6 +307,9 @@ class AIAgent:
                 ),
                 default=True,
             )
+            
+        # 解析日志文件路径配置
+        self.log_file_path = log_file_path or get_config_value("LOG_FILE_PATH", "conversation.log")
 
         if not resolved_api_key:
             raise ValueError("请在环境变量或 .env 文件中设置 OPENAI_API_KEY")
@@ -468,6 +515,10 @@ class AIAgent:
             # 根据回复内容判断是否应该结束对话
             if _should_end_conversation(assistant_reply):
                 print(f"\n✓ 对话结束: AI 主动结束（第 {round_num} 轮）")
+                
+                # 记录对话到日志
+                _log_conversation(user_input, assistant_reply, self.log_file_path)
+                
                 self.conversation_history.append(
                     {"role": "assistant", "content": assistant_reply}
                 )
@@ -475,6 +526,9 @@ class AIAgent:
                 return assistant_reply, self.last_think_content
 
             if not tool_calls:
+                # 记录对话到日志
+                _log_conversation(user_input, assistant_reply, self.log_file_path)
+                
                 # 无工具调用且无结束关键词，继续下一轮
                 self.conversation_history.append(
                     {"role": "assistant", "content": assistant_reply}
@@ -497,6 +551,10 @@ class AIAgent:
                 self._execute_tool_and_append(serialized)
 
         fallback = "Error: Tool call rounds exceeded the maximum limit."
+        
+        # 记录对话到日志
+        _log_conversation(user_input, fallback, self.log_file_path)
+        
         self.conversation_history.append({"role": "assistant", "content": fallback})
         self.last_think_content = "\n".join(think_parts).strip() or None
         return fallback, self.last_think_content
@@ -519,6 +577,10 @@ class AIAgent:
             # 根据回复内容判断是否应该结束对话
             if _should_end_conversation(assistant_reply):
                 print(f"\n✓ 对话结束: AI 主动结束（第 {round_num} 轮）")
+                
+                # 记录对话到日志
+                _log_conversation(user_input, assistant_reply, self.log_file_path)
+                
                 self.conversation_history.append(
                     {"role": "assistant", "content": assistant_reply}
                 )
@@ -526,6 +588,9 @@ class AIAgent:
                 return assistant_reply, self.last_think_content
 
             if not tool_calls:
+                # 记录对话到日志
+                _log_conversation(user_input, assistant_reply, self.log_file_path)
+                
                 # 无工具调用且无结束关键词，继续下一轮
                 self.conversation_history.append(
                     {"role": "assistant", "content": assistant_reply}
@@ -556,6 +621,10 @@ class AIAgent:
 
         # 超过最大轮数限制
         print(f"\n✗ 对话结束: 超过最大轮数限制（{self.max_tool_call_rounds} 轮）")
+        
+        # 记录对话到日志
+        _log_conversation(user_input, "Error: Tool call rounds exceeded the maximum limit.", self.log_file_path)
+        
         fallback = "Error: Tool call rounds exceeded the maximum limit."
         self.conversation_history.append({"role": "assistant", "content": fallback})
         self.last_think_content = "\n".join(think_parts).strip() or None
@@ -570,6 +639,10 @@ class AIAgent:
             return assistant_reply
         except Exception as error:
             error_msg = f"发生错误: {error}"
+            
+            # 记录错误到日志
+            _log_conversation(user_input, error_msg, self.log_file_path)
+            
             self.conversation_history.append({"role": "assistant", "content": error_msg})
             return error_msg
 
@@ -585,6 +658,10 @@ class AIAgent:
             return assistant_reply
         except Exception as error:
             error_msg = f"发生错误: {error}"
+            
+            # 记录错误到日志
+            _log_conversation(user_input, error_msg, self.log_file_path)
+            
             self.conversation_history.append({"role": "assistant", "content": error_msg})
             return error_msg
 
