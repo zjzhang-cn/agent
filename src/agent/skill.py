@@ -55,7 +55,7 @@ def _resolve_skill_search_dirs() -> List[Path]:
     if not configured:
         return list(DEFAULT_SKILL_SEARCH_DIRS)
 
-    parts = [p.strip() for p in configured.split(os.pathsep) if p.strip()]
+    parts = [p.strip() for p in configured.split(':') if p.strip()]
     if not parts:
         return list(DEFAULT_SKILL_SEARCH_DIRS)
 
