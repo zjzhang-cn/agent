@@ -34,7 +34,7 @@ def _parse_prompt_params(values: List[str]) -> Dict[str, str]:
 def _render_system_prompt(template: str, params: Dict[str, str]) -> str:
     if not params:
         return template
-    # Only replace simple placeholders like {name}; keep JSON/style braces untouched.
+    # 仅替换简单的占位符如 {name}；保留 JSON/样式花括号不变。
     pattern = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
     def _replace(match: re.Match[str]) -> str:

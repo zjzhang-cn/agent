@@ -165,9 +165,9 @@ def get_system_default_browser() -> tuple[Optional[str], Optional[str]]:
 
 
 def get_browser_headed_default() -> bool:
-    """Return default headed mode for browser_use start action.
+    """返回浏览器启动时的默认 headed 模式。
 
-    Env vars (first non-empty wins):
+    环境变量（按优先级依次检查）：
     - COPAW_BROWSER_HEADED
     - BROWSER_HEADED
     """
@@ -176,9 +176,9 @@ def get_browser_headed_default() -> bool:
 
 
 def get_browser_bring_to_front_enabled() -> bool:
-    """Return whether browser_use should call page.bring_to_front().
+    """返回是否允许 browser_use 调用 page.bring_to_front()。
 
-    Env vars (first non-empty wins):
+    环境变量（按优先级依次检查）：
     - COPAW_BROWSER_BRING_TO_FRONT
     - BROWSER_BRING_TO_FRONT
     """
@@ -190,9 +190,9 @@ def get_browser_bring_to_front_enabled() -> bool:
 
 
 def get_browser_auto_stop_enabled() -> bool:
-    """Return whether browser_use allows normal stop actions.
+    """返回是否允许 browser_use 执行普通 stop 操作。
 
-    Env vars (first non-empty wins):
+    环境变量（按优先级依次检查）：
     - COPAW_BROWSER_AUTO_STOP
     - BROWSER_AUTO_STOP
     """

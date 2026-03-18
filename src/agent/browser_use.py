@@ -120,28 +120,28 @@ def _touch_activity() -> None:
 
 
 def _get_default_headed() -> bool:
-    """Read headed default at runtime so .env changes are respected."""
+    """运行时读取 headed 默认值，以支持 .env 配置变更。"""
     return get_browser_headed_default()
 
 
 def _is_bring_to_front_enabled() -> bool:
-    """Read bring_to_front switch at runtime."""
+    """运行时读取 bring_to_front 开关配置。"""
     return get_browser_bring_to_front_enabled()
 
 
 def _is_auto_stop_enabled() -> bool:
-    """Read auto stop switch at runtime."""
+    """运行时读取 auto stop 开关配置。"""
     return get_browser_auto_stop_enabled()
 
 
 def _bring_page_to_front(page) -> None:
-    """Best-effort: focus the target page when browser is visible."""
+    """尝试将目标页面置于前台（当浏览器可见时）。"""
     if (not _is_bring_to_front_enabled()) or page is None or _state.get("headless", True):
         return
     try:
         page.bring_to_front()
     except Exception:
-        # Keep non-fatal so normal automation can continue.
+        # 保持非致命错误，使常规自动化可以继续执行。
         pass
 
 
@@ -319,8 +319,8 @@ def _ensure_browser() -> bool:
         _touch_activity()
         return True
 
-    # For implicit startup (e.g. action=open before action=start),
-    # sync headless/headed from runtime config.
+    # 隐式启动时（例如在 action=start 之前使用 action=open），
+    # 从运行时配置同步 headless/headed 设置。
     _state["headless"] = not _get_default_headed()
 
     try:

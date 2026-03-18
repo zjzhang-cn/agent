@@ -154,10 +154,10 @@ def _resolve_shell_runner(shell: str) -> Tuple[List[str], str]:
 
 
 def get_effective_shell_name(shell: Optional[str] = None) -> str:
-    """Resolve the effective shell kind for logging/display.
+    """获取用于日志记录/显示的有效 Shell 类型。
 
-    This returns the actual shell type that will be targeted (e.g. auto -> powershell on
-    Windows, auto -> bash on Unix-like systems), without checking executable availability.
+    返回实际将使用的 Shell 类型（例如：Windows 上 auto -> powershell，
+    类 Unix 系统上 auto -> bash），不检查可执行文件是否存在。
     """
     requested_shell = _normalize_shell_name(shell)
     if requested_shell not in _SUPPORTED_SHELLS:
