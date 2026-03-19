@@ -38,262 +38,35 @@ from .error_handling import (
     ToolExecutionError,
     ConfigurationError,
 )
-
-# 系统指令帮助命令
-_HELP_COMMANDS = ["help", "帮助", "?", "？", "指令", "命令", "help me", "help!"]
-
-
-
-
-
-def _build_openai_http_client() -> Optional[httpx.Client]:
-    """根据环境变量构建 OpenAI 的 HTTP 客户端（支持自签名证书信任）。"""
-    verify_ssl = parse_bool(
-        get_config_value("OPENAI_SSL_VERIFY", "OPENAI_TLS_VERIFY"),
-        default=True,
-    )
-    cert_path = get_config_value("OPENAI_CA_BUNDLE", "SSL_CERT_FILE")
-
-    if cert_path:
-        cert_path = os.path.abspath(os.path.expanduser(cert_path))
-        if not os.path.isfile(cert_path):
-            raise ValueError(f"OPENAI_CA_BUNDLE 指定的证书文件不存在: {cert_path}")
-
-    if not verify_ssl:
-        print("警告: 已禁用 OpenAI TLS 证书校验（OPENAI_SSL_VERIFY=false），仅建议在内网调试场景使用。")
-        return httpx.Client(verify=False)
-
-    if cert_path:
-        print(f"已加载 OpenAI CA 证书: {cert_path}")
-        return httpx.Client(verify=cert_path)
-
-    return None
-
-def _is_help_command(user_input: str) -> bool:
-    """检测用户输入是否为帮助命令"""
-    if not user_input:
-        return False
-    content_lower = user_input.lower().strip()
-    return any(cmd.lower() in content_lower for cmd in _HELP_COMMANDS)
+from .http_client import build_openai_http_client
+from .help_utils import HELP_COMMANDS, is_help_command, build_help_content
+from .tool_utils import (
+    DEFAULT_TOOL_GROUP_ORDER,
+    DEFAULT_TOOL_GUIDANCE,
+    resolve_enabled_tools,
+    get_configured_enabled_tools,
+    format_tool_log_line,
+)
+from .conversation_utils import END_CONVERSATION_KEYWORDS, should_end_conversation
+from .prompt_utils import build_default_system_prompt
 
 
-def _build_help_content(enabled_tools: Optional[List[str]] = None) -> str:
-    """构建帮助内容"""
-    tool_groups = _resolve_enabled_tools(enabled_tools)
-    tool_lines = [_DEFAULT_TOOL_GUIDANCE[name] for name in tool_groups]
-    tool_summary = "、".join(tool_groups) if tool_groups else "无"
-
-    help_text = """📖 **可用指令帮助**
-
-**对话控制指令：**
-- `结束` / `exit` / `quit` - 结束当前对话
-- `帮助` / `help` / `?` - 显示本帮助信息
-
-**CLI 命令（输入以 / 开头）：**
-- `/reset` - 重置当前会话（清空历史并重新应用系统提示）
-- `/history` - 查看当前会话历史
-- `/system <提示词>` - 更新系统提示词
-- `/files` - 查看当前已上传文件列表
-- `/upload <本地路径>` - 上传本地文件到会话
-- `/fileparts` - 查看原生文件片段开关状态
-- `/fileparts on|off` - 开启/关闭原生文件片段
-
-**Skill 命令：**
-- `/skill list` - 列出可用技能
-- `/skill load <名称>` - 加载指定技能
-- `/skill unload` - 卸载当前技能
-- `/skill reload` - 重新加载当前技能
-
-**当前可用工具组：** """ + tool_summary + """
-
-**工具使用说明：**
-"""
-    help_text += "\n".join(tool_lines)
-    help_text += """
-
-**使用提示：**
-- 直接输入你的需求，我会根据需要调用工具来帮助你
-- 需要查看命令清单时，输入 `help`、`帮助` 或 `/help`
-- 如果需要结束对话，说"结束"或"exit"即可
-- 想管理会话或技能时，优先使用 `/reset`、`/history`、`/skill ...`
-"""
-    return help_text
 
 
-_DEFAULT_TOOL_GROUP_ORDER = [
-    "file_io",
-    "dir_io",
-    "python_exec",
-    "bash_exec",
-    "browser_use",
-]
-_DEFAULT_TOOL_GUIDANCE = {
-    "file_io": "- 文件工具：可以读取、写入、编辑、追加文本文件。修改前优先读取相关文件，变更应保持最小且避免误改无关内容。",
-    "dir_io": "- 目录工具：可以列出、创建、删除、移动、复制目录，以及检查目录是否存在。执行前先确认路径和影响范围。",
-    "python_exec": "- Python 工具：可以执行 Python 脚本或代码片段。适合做逻辑验证、生成结果、复现问题；只有在确实需要时才执行。",
-    "bash_exec": "- Shell 工具：可以执行跨平台 Shell 命令。Windows 默认使用 PowerShell，类 Unix 默认使用 Bash；也可通过 shell 参数指定 auto/bash/powershell/cmd。",
-    "browser_use": (
-        "- 浏览器工具：通过 Playwright 执行网页自动化（页面打开、交互、截图、快照、网络与控制台观察）。"
-        "推荐流程：start -> open/navigate -> snapshot -> 使用 ref 执行 click/type/hover/select_option -> 必要时 screenshot/pdf -> stop。"
-    ),
-}
 
 
-def _resolve_enabled_tools(enabled_tools: Optional[List[str]]) -> List[str]:
-    if enabled_tools is None:
-        return list(_DEFAULT_TOOL_GROUP_ORDER)
-
-    ordered: List[str] = []
-    seen = set()
-    for tool_name in enabled_tools:
-        if tool_name in _DEFAULT_TOOL_GUIDANCE and tool_name not in seen:
-            ordered.append(tool_name)
-            seen.add(tool_name)
-    return ordered
 
 
-def _get_configured_enabled_tools() -> Optional[List[str]]:
-    configured = parse_string_list(
-        get_config_value("OPENAI_ENABLED_TOOLS", "ENABLED_TOOLS")
-    )
-    if configured is None:
-        return None
-    return _resolve_enabled_tools(configured)
 
 
-def _format_tool_log_line(tool_name: str, arguments: Dict[str, Any]) -> str:
-    if tool_name == "browser_use":
-        action = str(arguments.get("action", "")).strip()
-        if not action:
-            return f"TOOL: {tool_name}"
-
-        if action == "click":
-            details: List[str] = [f"action={action}"]
-            for key in ("page_id", "ref", "selector", "frame_selector", "timeout_ms"):
-                value = arguments.get(key)
-                if value not in (None, ""):
-                    details.append(f"{key}={value}")
-            return f"TOOL: {tool_name} (" + ", ".join(details) + ")"
-
-        return f"TOOL: {tool_name} (action={action})"
-
-    if tool_name in ("run_bash_command", "run_shell_command"):
-        command = arguments.get("command", "")
-        effective_shell = get_effective_shell_name(arguments.get("shell"))
-        return f"TOOL: {tool_name} (shell={effective_shell}, command={command})"
-
-    if tool_name == "run_python_script":
-        script_path = arguments.get("script_path", "")
-        return f"TOOL: {tool_name} (script={script_path})"
-
-    if tool_name == "run_python_code":
-        code = arguments.get("code", "")
-        # 只显示第一行或截断
-        code_preview = code.split("\n")[0][:50] if code else ""
-        return f"TOOL: {tool_name} (code={code_preview})"
-
-    return f"TOOL: {tool_name}"
 
 
-# 结束对话的关键词
-_END_CONVERSATION_KEYWORDS = [
-    "<<再见>>",
-    "<<结束>>",
-    "<<完成>>",
-    "<<结束对话>>",
-    "<<MESSAGE_END>>",
-    "<<END>>",
-]
 
 
-def _should_end_conversation(response_content: Optional[str]) -> bool:
-    """根据回复内容判断是否应该结束对话"""
-    if not response_content:
-        return False
-    content_lower = response_content.lower()
-    return any(keyword in content_lower for keyword in _END_CONVERSATION_KEYWORDS)
 
 
-def build_default_system_prompt(enabled_tools: Optional[List[str]] = None) -> str:
-    tool_groups = _resolve_enabled_tools(enabled_tools)
-    tool_lines = [_DEFAULT_TOOL_GUIDANCE[name] for name in tool_groups]
-    tool_summary = "、".join(tool_groups) if tool_groups else "无"
 
-    # 添加主机环境信息
-    system_info = {
-        "os_type": platform.system(),
-        "os_release": platform.release(),
-        "os_version": platform.version(),
-        "machine_arch": platform.machine(),
-        "processor": platform.processor(),
-        "platform_details": platform.platform(),
-    }
-    
-    # 构建环境描述
-    env_description = f"主机环境信息：\n"
-    env_description += f"- 操作系统类型: {system_info['os_type']}\n"
-    env_description += f"- 操作系统版本: {system_info['os_version']}\n"
-    env_description += f"- 操作系统发行版: {system_info['platform_details']}\n"
-    env_description += f"- 系统架构: {system_info['machine_arch']}\n"
-    if system_info['processor']:
-        env_description += f"- 处理器: {system_info['processor']}\n"
-    
-    # 检测命令解释器类型
-    shell_type = os.environ.get('SHELL', 'Unknown')
-    if platform.system() == "Windows":
-        # Windows 系统可能使用 PowerShell 或 CMD
-        if os.environ.get('PSModulePath'):
-            shell_info = "命令解释器类型: PowerShell"
-        else:
-            shell_info = f"命令解释器类型: {os.environ.get('COMSPEC', 'CMD')}"
-    else:
-        # Unix-like 系统使用 SHELL 环境变量
-        shell_info = f"命令解释器类型: {shell_type}"
-    
-    env_description += f"- {shell_info}\n"
 
-    sections = [
-        "你是一个面向工程任务的 AI 助手，负责在多轮对话中准确理解需求、调用可用工具，并给出可执行、可验证的结果。",
-        env_description,
-        "工作原则：\n"
-        "- 先理解目标，再决定是否需要工具；不要为了使用工具而使用工具。\n"
-        "- 涉及项目文件、目录结构、代码实现、运行结果或环境状态时，优先通过工具获取事实，不要猜测。\n"
-        "- 结论必须与实际工具结果一致；不要声称已经读取、修改、创建或执行了未实际完成的操作。\n"
-        "- 当信息不足时，先继续收集上下文；确实缺少关键前提时，再明确指出缺口。\n"
-        "- 回答保持直接、清晰、可落地，优先给出下一步结论或结果。",
-        "编辑与执行要求：\n"
-        "- 修改代码或文件前，先读取相关上下文，理解现有实现与影响范围。\n"
-        "- 优先做最小必要变更，保留用户已有内容与风格，不主动重构无关部分。\n"
-        "- 运行 Python 或 Bash 前，明确目的；优先用于验证、排查、测试、构建或获取事实。\n"
-        "- 工具调用失败时，先根据报错调整参数、路径或方式，再决定是否需要向用户说明。\n"
-        "- 若当前启用工具无法完成任务，应明确说明限制，并提供可行替代方案。",
-        "当前可用工具组：" + tool_summary,
-    ]
-
-    if tool_lines:
-        sections.append("工具使用说明：\n" + "\n".join(tool_lines))
-    else:
-        sections.append("当前未启用任何工具组，只能基于现有对话内容回答。")
-
-    if "browser_use" in tool_groups:
-        sections.append(
-            "browser_use 使用规范：\n"
-            "- 先检查页面会话是否存在；首次使用优先 action=start，再 action=open。\n"
-            "- 在执行 click/type/hover/select_option 前，优先 action=snapshot 获取 refs。\n"
-            "- 能用 ref 时优先 ref；仅当 ref 不可用时再使用 selector。\n"
-            "- 涉及弹窗、上传、多标签页时，按 handle_dialog、file_upload、tabs 流程调用，不要跳步。\n"
-            "- 导航后或关键动作后，可用 wait_for/snapshot/screenshot 验证页面状态，避免凭空断言。\n"
-            "- 若工具返回错误，先依据报错修正参数重试（如 page_id、ref、selector、url、frame_selector），不要立即放弃。\n"
-            "- 需要总结网页内容时，先通过 snapshot/evaluate 获取页面文本证据，再输出结论。\n"
-            "- 任务结束时，若浏览器仍运行，调用 action=stop 释放资源。"
-        )
-
-    # 结束对话的提示词
-    sections.append(
-        "【结束指引】任务完成后，使用 <<再见>>、<<结束>>、<<完成>>、<<结束对话>>、<<MESSAGE_END>> 或 <<END>> 明确告知用户对话即将结束。"
-    )
-
-    return "\n\n".join(sections)
 
 
 class AIAgent:
@@ -308,6 +81,30 @@ class AIAgent:
         "python_exec": dispatch_python_exec_tool,
         "bash_exec": dispatch_bash_exec_tool,
         "browser_use": dispatch_browser_use_tool,
+    }
+
+    # 工具名到工具组名的映射
+    _TOOL_NAME_TO_GROUP = {
+        # file_io 工具
+        "read_file": "file_io",
+        "write_file": "file_io",
+        "edit_file": "file_io",
+        "append_file": "file_io",
+        # dir_io 工具
+        "list_directory": "dir_io",
+        "create_directory": "dir_io",
+        "remove_directory": "dir_io",
+        "move_directory": "dir_io",
+        "copy_directory": "dir_io",
+        "directory_exists": "dir_io",
+        # python_exec 工具
+        "run_python_script": "python_exec",
+        "run_python_code": "python_exec",
+        # bash_exec 工具
+        "run_bash_command": "bash_exec",
+        "run_shell_command": "bash_exec",
+        # browser_use 工具
+        "browser_use": "browser_use",
     }
 
     def __init__(
@@ -366,7 +163,7 @@ class AIAgent:
         if resolved_base_url:
             client_kwargs["base_url"] = resolved_base_url
 
-        http_client = _build_openai_http_client()
+        http_client = build_openai_http_client()
         if http_client is not None:
             client_kwargs["http_client"] = http_client
 
@@ -381,7 +178,7 @@ class AIAgent:
         self.uploaded_files: List[Dict[str, str]] = []
         resolved_enabled_tools = enabled_tools
         if resolved_enabled_tools is None:
-            resolved_enabled_tools = _get_configured_enabled_tools()
+            resolved_enabled_tools = get_configured_enabled_tools()
         self.default_enabled_tools = resolved_enabled_tools
         self.enabled_tools = resolved_enabled_tools
 
@@ -503,9 +300,9 @@ class AIAgent:
         self._trim_history_if_needed()
 
     def _try_handle_help_command(self, user_input: str) -> Optional[str]:
-        if not _is_help_command(user_input):
+        if not is_help_command(user_input):
             return None
-        help_content = _build_help_content(self.enabled_tools)
+        help_content = build_help_content(self.enabled_tools)
         self.conversation_history.append({"role": "user", "content": user_input})
         self.conversation_history.append({"role": "assistant", "content": help_content})
         self.last_think_content = None
@@ -521,44 +318,18 @@ class AIAgent:
         if "__error__" in arguments:
             tool_result = f"Error: {arguments['__error__']}"
         else:
-            # 工具名到dispatch函数的映射
-            tool_to_dispatcher = {
-                # file_io 工具
-                "read_file": dispatch_file_io_tool,
-                "write_file": dispatch_file_io_tool,
-                "edit_file": dispatch_file_io_tool,
-                "append_file": dispatch_file_io_tool,
-                # dir_io 工具
-                "list_directory": dispatch_dir_io_tool,
-                "create_directory": dispatch_dir_io_tool,
-                "remove_directory": dispatch_dir_io_tool,
-                "move_directory": dispatch_dir_io_tool,
-                "copy_directory": dispatch_dir_io_tool,
-                "directory_exists": dispatch_dir_io_tool,
-                # python_exec 工具
-                "run_python_script": dispatch_python_exec_tool,
-                "run_python_code": dispatch_python_exec_tool,
-                # bash_exec 工具
-                "run_bash_command": dispatch_bash_exec_tool,
-                "run_shell_command": dispatch_bash_exec_tool,
-                # browser_use 工具
-                "browser_use": dispatch_browser_use_tool,
-            }
-
-            dispatcher = tool_to_dispatcher.get(tool_name)
-            if dispatcher:
-                tool_result = dispatcher(tool_name, arguments)
+            # 使用工具名到工具组名映射获取分发函数
+            group_name = self._TOOL_NAME_TO_GROUP.get(tool_name)
+            if group_name:
+                dispatcher = self._TOOL_DISPATCHERS.get(group_name)
+                if dispatcher:
+                    tool_result = dispatcher(tool_name, arguments)
+                else:
+                    # 如果找不到分发函数，回退到链式检查
+                    tool_result = self._fallback_tool_dispatch(tool_name, arguments)
             else:
-                # 回退到链式检查（兼容未来可能添加的工具）
-                tool_result = dispatch_file_io_tool(tool_name, arguments)
-                if tool_result.startswith("Error: Unknown tool"):
-                    tool_result = dispatch_dir_io_tool(tool_name, arguments)
-                if tool_result.startswith("Error: Unknown tool"):
-                    tool_result = dispatch_python_exec_tool(tool_name, arguments)
-                if tool_result.startswith("Error: Unknown tool"):
-                    tool_result = dispatch_bash_exec_tool(tool_name, arguments)
-                if tool_result.startswith("Error: Unknown tool"):
-                    tool_result = dispatch_browser_use_tool(tool_name, arguments)
+                # 工具名不在映射中，回退到链式检查（兼容未来可能添加的工具）
+                tool_result = self._fallback_tool_dispatch(tool_name, arguments)
 
         # 记录工具调用日志
         success = not tool_result.startswith("Error:")
@@ -578,6 +349,19 @@ class AIAgent:
                 "content": tool_result,
             }
         )
+
+    def _fallback_tool_dispatch(self, tool_name: str, arguments: Dict[str, Any]) -> str:
+        """回退工具分发：链式检查各个工具组（兼容未来可能添加的工具）"""
+        tool_result = dispatch_file_io_tool(tool_name, arguments)
+        if tool_result.startswith("Error: Unknown tool"):
+            tool_result = dispatch_dir_io_tool(tool_name, arguments)
+        if tool_result.startswith("Error: Unknown tool"):
+            tool_result = dispatch_python_exec_tool(tool_name, arguments)
+        if tool_result.startswith("Error: Unknown tool"):
+            tool_result = dispatch_bash_exec_tool(tool_name, arguments)
+        if tool_result.startswith("Error: Unknown tool"):
+            tool_result = dispatch_browser_use_tool(tool_name, arguments)
+        return tool_result
 
     @staticmethod
     def _serialize_tool_call(tool_call: Any) -> Dict[str, Any]:
@@ -608,7 +392,7 @@ class AIAgent:
             assistant_reply = message.content or ""
 
             # 根据回复内容判断是否应该结束对话
-            if _should_end_conversation(assistant_reply):
+            if should_end_conversation(assistant_reply):
                 print(f"\n✓ 对话结束: AI 主动结束（第 {round_num} 轮）")
                 
                 # 记录对话到日志
@@ -670,7 +454,7 @@ class AIAgent:
                 think_parts.append(think_content)
 
             # 根据回复内容判断是否应该结束对话
-            if _should_end_conversation(assistant_reply):
+            if should_end_conversation(assistant_reply):
                 print(f"\n✓ 对话结束: AI 主动结束（第 {round_num} 轮）")
                 
                 # 记录对话到日志
@@ -709,7 +493,7 @@ class AIAgent:
                 if "__error__" in arguments:
                     print(f"\nTOOL: {tool_name}")
                 else:
-                    print(f"\n{_format_tool_log_line(tool_name, arguments)}")
+                    print(f"\n{format_tool_log_line(tool_name, arguments)}")
                 self._execute_tool_and_append(tool_call)
 
             print()
