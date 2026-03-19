@@ -29,68 +29,21 @@ from .streaming import (
     extract_think_content,
     parse_tool_arguments,
 )
+from .error_handling import (
+    format_exception_details,
+    log_conversation,
+    log_tool_call,
+    log_exception,
+    AgentError,
+    ToolExecutionError,
+    ConfigurationError,
+)
 
 # 系统指令帮助命令
 _HELP_COMMANDS = ["help", "帮助", "?", "？", "指令", "命令", "help me", "help!"]
 
-def _log_conversation(user_input: str, assistant_reply: str, log_file_path: str = "conversation.log"):
-    """记录对话到日志文件"""
-    if not log_file_path:
-        log_file_path = "conversation.log"
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    try:
-        with open(log_file_path, "a", encoding="utf-8") as log_file:
-            log_file.write(f"[{timestamp}] 用户: {user_input}\n")
-            log_file.write(f"[{timestamp}] AI: {assistant_reply}\n")
-            log_file.write("-" * 50 + "\n")
-    except Exception as error:
-        print(f"日志写入失败: {error}")
 
 
-def _format_exception_details(error: Exception) -> str:
-    """格式化异常详情，便于定位 OpenAI 调用问题。"""
-    error_module = type(error).__module__
-    if error_module.startswith("openai"):
-        title = "调用 OpenAI 接口时发生异常"
-    else:
-        title = "发生异常"
-
-    lines = [
-        f"{title}:",
-        f"异常类型: {type(error).__name__}",
-        f"异常信息: {error}",
-    ]
-
-    for attr, label in (
-        ("status_code", "HTTP 状态码"),
-        ("request_id", "请求 ID"),
-        ("code", "错误码"),
-        ("param", "错误参数"),
-        ("type", "错误类型"),
-    ):
-        value = getattr(error, attr, None)
-        if value not in (None, ""):
-            lines.append(f"{label}: {value}")
-
-    body = getattr(error, "body", None)
-    if body not in (None, ""):
-        lines.append(f"响应体: {body}")
-
-    response = getattr(error, "response", None)
-    if response is not None:
-        response_status = getattr(response, "status_code", None)
-        if response_status not in (None, ""):
-            lines.append(f"响应状态码: {response_status}")
-
-    if error.__cause__:
-        lines.append(f"原始原因: {type(error.__cause__).__name__}: {error.__cause__}")
-
-    traceback_text = traceback.format_exc().strip()
-    if traceback_text and traceback_text != "NoneType: None":
-        lines.append("Traceback:")
-        lines.append(traceback_text)
-
-    return "\n".join(lines)
 
 
 def _build_openai_http_client() -> Optional[httpx.Client]:
@@ -348,6 +301,15 @@ class AIAgent:
     一个支持多轮对话和 file_io 工具调用的 AI Agent。
     """
 
+    # 工具分发器映射
+    _TOOL_DISPATCHERS = {
+        "file_io": dispatch_file_io_tool,
+        "dir_io": dispatch_dir_io_tool,
+        "python_exec": dispatch_python_exec_tool,
+        "bash_exec": dispatch_bash_exec_tool,
+        "browser_use": dispatch_browser_use_tool,
+    }
+
     def __init__(
         self,
         model: Optional[str] = None,
@@ -447,7 +409,7 @@ class AIAgent:
                 return file_info
             except Exception as error:
                 last_error = error
-                last_error_text = _format_exception_details(error)
+                last_error_text = format_exception_details(error)
                 if current_purpose == "assistants":
                     break
 
@@ -559,15 +521,54 @@ class AIAgent:
         if "__error__" in arguments:
             tool_result = f"Error: {arguments['__error__']}"
         else:
-            tool_result = dispatch_file_io_tool(tool_name, arguments)
-            if tool_result.startswith("Error: Unknown tool"):
-                tool_result = dispatch_dir_io_tool(tool_name, arguments)
-            if tool_result.startswith("Error: Unknown tool"):
-                tool_result = dispatch_python_exec_tool(tool_name, arguments)
-            if tool_result.startswith("Error: Unknown tool"):
-                tool_result = dispatch_bash_exec_tool(tool_name, arguments)
-            if tool_result.startswith("Error: Unknown tool"):
-                tool_result = dispatch_browser_use_tool(tool_name, arguments)
+            # 工具名到dispatch函数的映射
+            tool_to_dispatcher = {
+                # file_io 工具
+                "read_file": dispatch_file_io_tool,
+                "write_file": dispatch_file_io_tool,
+                "edit_file": dispatch_file_io_tool,
+                "append_file": dispatch_file_io_tool,
+                # dir_io 工具
+                "list_directory": dispatch_dir_io_tool,
+                "create_directory": dispatch_dir_io_tool,
+                "remove_directory": dispatch_dir_io_tool,
+                "move_directory": dispatch_dir_io_tool,
+                "copy_directory": dispatch_dir_io_tool,
+                "directory_exists": dispatch_dir_io_tool,
+                # python_exec 工具
+                "run_python_script": dispatch_python_exec_tool,
+                "run_python_code": dispatch_python_exec_tool,
+                # bash_exec 工具
+                "run_bash_command": dispatch_bash_exec_tool,
+                "run_shell_command": dispatch_bash_exec_tool,
+                # browser_use 工具
+                "browser_use": dispatch_browser_use_tool,
+            }
+
+            dispatcher = tool_to_dispatcher.get(tool_name)
+            if dispatcher:
+                tool_result = dispatcher(tool_name, arguments)
+            else:
+                # 回退到链式检查（兼容未来可能添加的工具）
+                tool_result = dispatch_file_io_tool(tool_name, arguments)
+                if tool_result.startswith("Error: Unknown tool"):
+                    tool_result = dispatch_dir_io_tool(tool_name, arguments)
+                if tool_result.startswith("Error: Unknown tool"):
+                    tool_result = dispatch_python_exec_tool(tool_name, arguments)
+                if tool_result.startswith("Error: Unknown tool"):
+                    tool_result = dispatch_bash_exec_tool(tool_name, arguments)
+                if tool_result.startswith("Error: Unknown tool"):
+                    tool_result = dispatch_browser_use_tool(tool_name, arguments)
+
+        # 记录工具调用日志
+        success = not tool_result.startswith("Error:")
+        log_tool_call(
+            tool_name=tool_name,
+            arguments=arguments,
+            success=success,
+            result=tool_result if success else None,
+            error=None if success else Exception(tool_result)
+        )
 
         tool_call_id = str(tool_call.get("id", ""))
         self.conversation_history.append(
@@ -611,7 +612,7 @@ class AIAgent:
                 print(f"\n✓ 对话结束: AI 主动结束（第 {round_num} 轮）")
                 
                 # 记录对话到日志
-                _log_conversation(user_input, assistant_reply, self.log_file_path)
+                log_conversation(user_input, assistant_reply, self.log_file_path)
                 
                 self.conversation_history.append(
                     {"role": "assistant", "content": assistant_reply}
@@ -621,7 +622,7 @@ class AIAgent:
 
             if not tool_calls:
                 # 记录对话到日志
-                _log_conversation(user_input, assistant_reply, self.log_file_path)
+                log_conversation(user_input, assistant_reply, self.log_file_path)
                 
                 # 无工具调用且无结束关键词，继续下一轮
                 self.conversation_history.append(
@@ -647,7 +648,7 @@ class AIAgent:
         fallback = "Error: Tool call rounds exceeded the maximum limit."
         
         # 记录对话到日志
-        _log_conversation(user_input, fallback, self.log_file_path)
+        log_conversation(user_input, fallback, self.log_file_path)
         
         self.conversation_history.append({"role": "assistant", "content": fallback})
         self.last_think_content = "\n".join(think_parts).strip() or None
@@ -673,7 +674,7 @@ class AIAgent:
                 print(f"\n✓ 对话结束: AI 主动结束（第 {round_num} 轮）")
                 
                 # 记录对话到日志
-                _log_conversation(user_input, assistant_reply, self.log_file_path)
+                log_conversation(user_input, assistant_reply, self.log_file_path)
                 
                 self.conversation_history.append(
                     {"role": "assistant", "content": assistant_reply}
@@ -683,7 +684,7 @@ class AIAgent:
 
             if not tool_calls:
                 # 记录对话到日志
-                _log_conversation(user_input, assistant_reply, self.log_file_path)
+                log_conversation(user_input, assistant_reply, self.log_file_path)
                 
                 # 无工具调用且无结束关键词，继续下一轮
                 self.conversation_history.append(
@@ -717,7 +718,7 @@ class AIAgent:
         print(f"\n✗ 对话结束: 超过最大轮数限制（{self.max_tool_call_rounds} 轮）")
         
         # 记录对话到日志
-        _log_conversation(user_input, "Error: Tool call rounds exceeded the maximum limit.", self.log_file_path)
+        log_conversation(user_input, "Error: Tool call rounds exceeded the maximum limit.", self.log_file_path)
         
         fallback = "Error: Tool call rounds exceeded the maximum limit."
         self.conversation_history.append({"role": "assistant", "content": fallback})
@@ -732,11 +733,11 @@ class AIAgent:
             assistant_reply, _ = self._run_with_tools_non_stream(user_input)
             return assistant_reply
         except Exception as error:
-            error_msg = _format_exception_details(error)
+            error_msg = format_exception_details(error)
             print(error_msg)
             
             # 记录错误到日志
-            _log_conversation(user_input, error_msg, self.log_file_path)
+            log_conversation(user_input, error_msg, self.log_file_path)
             
             self.conversation_history.append({"role": "assistant", "content": error_msg})
             return error_msg
@@ -752,11 +753,11 @@ class AIAgent:
                 print("AI: ")
             return assistant_reply
         except Exception as error:
-            error_msg = _format_exception_details(error)
+            error_msg = format_exception_details(error)
             print(error_msg)
             
             # 记录错误到日志
-            _log_conversation(user_input, error_msg, self.log_file_path)
+            log_conversation(user_input, error_msg, self.log_file_path)
             
             self.conversation_history.append({"role": "assistant", "content": error_msg})
             return error_msg
