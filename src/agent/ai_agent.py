@@ -153,7 +153,7 @@ class AIAgent:
         self.log_file_path = (
             log_file_path
             or get_config_value("LOG_FILE_PATH")
-            or "conversation.log"
+            or ".history.log"
         )
 
         if not resolved_api_key:

@@ -130,3 +130,5 @@ node_modules/
 *.log
 .claude
 *.png
+*.log
+*.json
