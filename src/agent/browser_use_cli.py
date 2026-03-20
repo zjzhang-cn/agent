@@ -77,8 +77,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--text-gone", default=None)
     parser.add_argument("--frame-selector", default=None)
 
-    parser.add_argument("--headed", dest="headed", action="store_true")
-    parser.set_defaults(headed=None)
+    parser.add_argument("--headless", dest="headless", action="store_true")
+    parser.set_defaults(headless=None)
 
     parser.add_argument("--force-stop", action="store_true")
     parser.add_argument("--compact", action="store_true", help="输出紧凑 JSON（默认美化输出）")
@@ -122,7 +122,7 @@ def _merge_cli_args(base: Dict[str, Any], args: argparse.Namespace) -> Dict[str,
         "wait_time": args.wait_time,
         "text_gone": args.text_gone,
         "frame_selector": args.frame_selector,
-        "headed": args.headed,
+        "headless": args.headless,
     }
     for key, value in optional_fields.items():
         if value is not None:
@@ -275,7 +275,7 @@ def _run_interactive(compact: bool) -> int:
             print("  pdf - 生成PDF")
             print("  close - 关闭页面")
             print("\n示例:")
-            print("  start headed=true")
+            print("  start headless=true")
             print("  open page_id=demo url=https://example.com")
             print("  click page_id=demo selector=\"text=More information\"")
             print("  evaluate page_id=demo code='() => location.href'")
@@ -308,7 +308,7 @@ def main() -> int:
     args = parser.parse_args()
 
     # CLI 测试工具默认使用可见浏览器并尝试前置窗口，便于人工观察。
-    os.environ.setdefault("COPAW_BROWSER_HEADLESS", "1")
+    os.environ.setdefault("COPAW_BROWSER_HEADLESS", "0")
     os.environ.setdefault("COPAW_BROWSER_BRING_TO_FRONT", "1")
     os.environ.setdefault("COPAW_BROWSER_USE_SYS_DEFAULT", "0")
 

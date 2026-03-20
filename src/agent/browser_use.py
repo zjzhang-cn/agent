@@ -82,7 +82,7 @@ BROWSER_USE_TOOLS: List[Dict[str, Any]] = [
                     "wait_time": {"type": "number"},
                     "text_gone": {"type": "string"},
                     "frame_selector": {"type": "string"},
-                    "headed": {"type": "boolean"},
+                    "headless": {"type": "boolean"},
                     "force_stop": {"type": "boolean"},
                 },
                 "required": ["action"],
@@ -313,7 +313,7 @@ def _ensure_browser() -> bool:
         return True
 
     # 隐式启动时（例如在 action=start 之前使用 action=open），
-    # 从运行时配置同步 headless/headed 设置。
+    # 从运行时配置同步 headless 设置。
     _state["headless"] = _get_default_headless()
     print(f"Browser not running, launching with headless={_state['headless']}...")
     try:
@@ -498,23 +498,23 @@ def _build_snapshot(page, frame_selector: str = "") -> tuple[str, Dict[str, Dict
     return "\n".join(lines), refs
 
 
-def _action_start(headed: Optional[bool] = None) -> str:
-    effective_headed = _get_default_headed() if headed is None else bool(headed)
+def _action_start(headless: Optional[bool] = None) -> str:
+    effective_headless = _get_default_headless() if headless is None else bool(headless)
     browser_exists = _state["browser"] is not None
     if browser_exists:
-        if effective_headed and _state["headless"]:
+        if effective_headless != _state["headless"]:
             _action_stop()
         else:
             return _tool_response({"ok": True, "message": "Browser already running"})
 
-    _state["headless"] = not effective_headed
+    _state["headless"] = effective_headless
     try:
         pw, browser, context = _launch_browser(_state["headless"])
         _state["playwright"] = pw
         _state["browser"] = browser
         _state["context"] = context
         _touch_activity()
-        message = "Browser started (visible window)" if effective_headed else "Browser started"
+        message = "Browser started" if effective_headless else "Browser started (visible window)"
         return _tool_response({"ok": True, "message": message})
     except Exception as error:
         return _tool_response({"ok": False, "error": f"Browser start failed: {error!s}"})
@@ -1346,7 +1346,7 @@ def browser_use_tool(
     wait_time: float = 0,
     text_gone: str = "",
     frame_selector: str = "",
-    headed: Optional[bool] = None,
+    headless: Optional[bool] = None,
     force_stop: bool = False,
 ) -> str:
     del element, start_element, end_element
@@ -1363,8 +1363,8 @@ def browser_use_tool(
 
     try:
         if action == "start":
-            resolved_headed = None if headed is None else _coerce_bool(headed, False)
-            return _action_start(headed=resolved_headed)
+            resolved_headless = None if headless is None else _coerce_bool(headless, _get_default_headless())
+            return _action_start(headless=resolved_headless)
         if action == "stop":
             return _action_stop(force=_coerce_bool(force_stop, False))
         if action == "open":
@@ -1500,7 +1500,7 @@ def dispatch_browser_use_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
             wait_time=arguments.get("wait_time", 0.0),
             text_gone=str(arguments.get("text_gone", "")),
             frame_selector=str(arguments.get("frame_selector", "")),
-            headed=arguments.get("headed"),
+            headless=arguments.get("headless"),
             force_stop=arguments.get("force_stop", False),
         )
     except Exception as error:

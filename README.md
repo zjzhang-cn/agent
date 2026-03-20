@@ -150,7 +150,7 @@ uv run agent --all-skills --user-message "帮我检查项目结构"
 常见用法：
 
 ```bash
-uv run browser-use-test --action start --headed
+uv run browser-use-test --action start --headless
 uv run browser-use-test --action open --page-id demo --url https://example.com
 uv run browser-use-test --action snapshot --page-id demo
 uv run browser-use-test --action click --page-id demo --selector "text=More information"
