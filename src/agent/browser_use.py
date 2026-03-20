@@ -15,6 +15,7 @@ from .config import (
     get_browser_bring_to_front_enabled,
     get_browser_headless_default,
     get_playwright_chromium_executable_path,
+    get_browser_use_sys_default,
     get_system_default_browser,
     is_running_in_container,
 )
@@ -282,8 +283,7 @@ def _attach_context_listeners(context) -> None:
 
 def _launch_browser(headless: bool) -> tuple[Any, Any, Any]:
     pw = sync_playwright().start()
-    use_sys_default = os.environ.get("COPAW_BROWSER_USE_SYS_DEFAULT", "1"
-    ).strip().lower() in ("1", "true", "yes")
+    use_sys_default = get_browser_use_sys_default()
     default_kind, default_path = (
         get_system_default_browser() if use_sys_default else (None, None)
     )
@@ -294,11 +294,9 @@ def _launch_browser(headless: bool) -> tuple[Any, Any, Any]:
     if extra_args:
         launch_kwargs["args"] = extra_args
 
-    if default_path:
+    if use_sys_default:
         launch_kwargs["executable_path"] = default_path
         browser = pw.chromium.launch(**launch_kwargs)
-    elif default_kind == "webkit" or sys.platform == "darwin":
-        browser = pw.webkit.launch(headless=headless)
     else:
         browser = pw.chromium.launch(**launch_kwargs)
 

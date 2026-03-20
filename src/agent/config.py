@@ -163,7 +163,18 @@ def get_system_default_browser() -> tuple[Optional[str], Optional[str]]:
 
     return None, None
 
+def get_browser_use_sys_default() -> bool:
+    """返回 browser_use 是否默认使用系统浏览器。
 
+    环境变量（按优先级依次检查）：
+    - COPAW_BROWSER_USE_SYS_DEFAULT
+    - BROWSER_USE_SYS_DEFAULT
+    """
+    value = get_config_value(
+        "COPAW_BROWSER_USE_SYS_DEFAULT",
+        "BROWSER_USE_SYS_DEFAULT",
+    )
+    return parse_bool(value, default=True)
 def get_browser_headless_default() -> bool:
     """返回浏览器启动时的默认 headless 模式。
 
@@ -172,7 +183,7 @@ def get_browser_headless_default() -> bool:
     - BROWSER_HEADLESS
     """
     value = get_config_value("COPAW_BROWSER_HEADLESS", "BROWSER_HEADLESS")
-    return parse_bool(value, default=False)
+    return parse_bool(value, default=True)
 
 
 def get_browser_bring_to_front_enabled() -> bool:

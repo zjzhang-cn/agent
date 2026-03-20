@@ -308,8 +308,9 @@ def main() -> int:
     args = parser.parse_args()
 
     # CLI 测试工具默认使用可见浏览器并尝试前置窗口，便于人工观察。
-    os.environ.setdefault("COPAW_BROWSER_HEADED", "1")
+    os.environ.setdefault("COPAW_BROWSER_HEADLESS", "1")
     os.environ.setdefault("COPAW_BROWSER_BRING_TO_FRONT", "1")
+    os.environ.setdefault("COPAW_BROWSER_USE_SYS_DEFAULT", "0")
 
     try:
         base = _load_args_json(args.args_json)
