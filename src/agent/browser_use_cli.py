@@ -78,7 +78,6 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--frame-selector", default=None)
 
     parser.add_argument("--headed", dest="headed", action="store_true")
-    parser.add_argument("--headless", dest="headed", action="store_false")
     parser.set_defaults(headed=None)
 
     parser.add_argument("--force-stop", action="store_true")

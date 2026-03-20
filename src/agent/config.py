@@ -164,14 +164,14 @@ def get_system_default_browser() -> tuple[Optional[str], Optional[str]]:
     return None, None
 
 
-def get_browser_headed_default() -> bool:
-    """返回浏览器启动时的默认 headed 模式。
+def get_browser_headless_default() -> bool:
+    """返回浏览器启动时的默认 headless 模式。
 
     环境变量（按优先级依次检查）：
-    - COPAW_BROWSER_HEADED
-    - BROWSER_HEADED
+    - COPAW_BROWSER_HEADLESS
+    - BROWSER_HEADLESS
     """
-    value = get_config_value("COPAW_BROWSER_HEADED", "BROWSER_HEADED")
+    value = get_config_value("COPAW_BROWSER_HEADLESS", "BROWSER_HEADLESS")
     return parse_bool(value, default=False)
 
 

@@ -13,7 +13,7 @@ from playwright.sync_api import sync_playwright
 from .config import (
     get_browser_auto_stop_enabled,
     get_browser_bring_to_front_enabled,
-    get_browser_headed_default,
+    get_browser_headless_default,
     get_playwright_chromium_executable_path,
     get_system_default_browser,
     is_running_in_container,
@@ -119,9 +119,9 @@ def _touch_activity() -> None:
     _state["last_activity_time"] = time.monotonic()
 
 
-def _get_default_headed() -> bool:
-    """运行时读取 headed 默认值，以支持 .env 配置变更。"""
-    return get_browser_headed_default()
+def _get_default_headless() -> bool:
+    """运行时读取 headless 默认值，以支持 .env 配置变更。"""
+    return get_browser_headless_default()
 
 
 def _is_bring_to_front_enabled() -> bool:
@@ -282,26 +282,20 @@ def _attach_context_listeners(context) -> None:
 
 def _launch_browser(headless: bool) -> tuple[Any, Any, Any]:
     pw = sync_playwright().start()
-    use_default = not is_running_in_container() and os.environ.get(
-        "COPAW_BROWSER_USE_DEFAULT", "1"
+    use_sys_default = os.environ.get("COPAW_BROWSER_USE_SYS_DEFAULT", "1"
     ).strip().lower() in ("1", "true", "yes")
     default_kind, default_path = (
-        get_system_default_browser() if use_default else (None, None)
+        get_system_default_browser() if use_sys_default else (None, None)
     )
 
-    executable_path: Optional[str] = None
-    if default_kind == "chromium" and default_path:
-        executable_path = default_path
-    elif default_kind != "webkit":
-        executable_path = get_playwright_chromium_executable_path()
 
     launch_kwargs: Dict[str, Any] = {"headless": headless}
     extra_args = _chromium_launch_args()
     if extra_args:
         launch_kwargs["args"] = extra_args
 
-    if executable_path:
-        launch_kwargs["executable_path"] = executable_path
+    if default_path:
+        launch_kwargs["executable_path"] = default_path
         browser = pw.chromium.launch(**launch_kwargs)
     elif default_kind == "webkit" or sys.platform == "darwin":
         browser = pw.webkit.launch(headless=headless)
@@ -314,6 +308,7 @@ def _launch_browser(headless: bool) -> tuple[Any, Any, Any]:
 
 
 def _ensure_browser() -> bool:
+    print("Ensuring browser is running...")
     _cleanup_if_idle()
     if _state["browser"] is not None and _state["context"] is not None:
         _touch_activity()
@@ -321,8 +316,8 @@ def _ensure_browser() -> bool:
 
     # 隐式启动时（例如在 action=start 之前使用 action=open），
     # 从运行时配置同步 headless/headed 设置。
-    _state["headless"] = not _get_default_headed()
-
+    _state["headless"] = _get_default_headless()
+    print(f"Browser not running, launching with headless={_state['headless']}...")
     try:
         pw, browser, context = _launch_browser(_state["headless"])
         _state["playwright"] = pw
