@@ -48,9 +48,9 @@ OPENAI_INCLUDE_NATIVE_FILE_PARTS=true
 OPENAI_SYSTEM_PROMPT=你是{role}，项目是{project}
 OPENAI_SSL_VERIFY=true
 OPENAI_CA_BUNDLE=/path/to/your/ca.pem
-SKILL_SEARCH_DIRS=skills:.agent/skills:~/.agent/skills
+SKILL_SEARCH_DIRS=skills:.agent/skills
 
-COPAW_BROWSER_HEADED=false
+COPAW_BROWSER_HEADLESS=false
 COPAW_BROWSER_BRING_TO_FRONT=true
 COPAW_BROWSER_AUTO_STOP=true
 COPAW_CHROMIUM_EXECUTABLE=/Applications/Google Chrome.app/Contents/MacOS/Google Chrome
@@ -70,7 +70,7 @@ COPAW_CHROMIUM_EXECUTABLE=/Applications/Google Chrome.app/Contents/MacOS/Google 
 - `OPENAI_SSL_VERIFY` / `OPENAI_TLS_VERIFY`：是否校验 TLS 证书，默认 `true`。
 - `OPENAI_CA_BUNDLE` / `SSL_CERT_FILE`：自定义 CA 证书路径（用于信任代理或网关自签名证书）。
 - `SKILL_SEARCH_DIRS`：Skill 搜索目录（macOS/Linux 使用 `:` 分隔，Windows 使用 `;` 分隔）。
-- `COPAW_BROWSER_HEADED` / `BROWSER_HEADED`：浏览器默认是否可见。
+- `COPAW_BROWSER_HEADLESS` / `COPAW_BROWSER_HEADLESS`：浏览器默认是否可见。
 - `COPAW_BROWSER_BRING_TO_FRONT` / `BROWSER_BRING_TO_FRONT`：可见模式下是否前置标签页。
 - `COPAW_BROWSER_AUTO_STOP` / `BROWSER_AUTO_STOP`：普通 `stop` 是否允许自动关闭浏览器。
 - `COPAW_CHROMIUM_EXECUTABLE`：指定 Chromium/Chrome 可执行文件路径。
@@ -142,7 +142,7 @@ uv run agent --all-skills --user-message "帮我检查项目结构"
 
 `browser-use-test` 默认会设置：
 
-- `COPAW_BROWSER_HEADED=1`
+- `COPAW_BROWSER_HEADLESS=0`
 - `COPAW_BROWSER_BRING_TO_FRONT=1`
 
 即默认有头模式并尽量将页面切到前台，便于人工观察。
