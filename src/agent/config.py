@@ -176,6 +176,20 @@ def get_browser_launch_args() -> Optional[List[str]]:
         return None
     return parse_string_list(value) or None
 
+
+def get_browser_proxy() -> Optional[str]:
+    """获取浏览器代理配置
+    
+    环境变量（按优先级依次检查）：
+    - COPAW_BROWSER_PROXY
+    - BROWSER_PROXY
+    """
+    return get_config_value(
+        "COPAW_BROWSER_PROXY",
+        "BROWSER_PROXY",
+    )
+
+
 def get_browser_use_sys_default() -> bool:
     """返回 browser_use 是否默认使用系统浏览器。
 
@@ -188,6 +202,8 @@ def get_browser_use_sys_default() -> bool:
         "BROWSER_USE_SYS_DEFAULT",
     )
     return parse_bool(value, default=True)
+
+
 def get_browser_headless_default() -> bool:
     """返回浏览器启动时的默认 headless 模式。
 

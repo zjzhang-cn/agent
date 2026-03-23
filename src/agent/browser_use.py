@@ -283,17 +283,25 @@ def _attach_context_listeners(context) -> None:
 
 
 def _launch_browser(headless: bool) -> tuple[Any, Any, Any]:
+    from .config import get_browser_proxy  # 导入代理配置函数
+    
     pw = sync_playwright().start()
     use_sys_default = get_browser_use_sys_default()
     default_kind, default_path = (
         get_system_default_browser() if use_sys_default else (None, None)
     )
 
-
+    # 获取代理配置
+    proxy_url = get_browser_proxy()
+    
     launch_kwargs: Dict[str, Any] = {"headless": headless}
     extra_args = _chromium_launch_args()
     if extra_args:
         launch_kwargs["args"] = extra_args
+    
+    # 如果设置了代理，则添加到启动参数中
+    if proxy_url:
+        launch_kwargs["proxy"] = {"server": proxy_url}
 
     if use_sys_default:
         launch_kwargs["executable_path"] = default_path
@@ -301,7 +309,12 @@ def _launch_browser(headless: bool) -> tuple[Any, Any, Any]:
     else:
         browser = pw.chromium.launch(**launch_kwargs)
 
-    context = browser.new_context()
+    # 如果设置了代理，确保上下文中也包含代理设置
+    if proxy_url:
+        context = browser.new_context(proxy={"server": proxy_url})
+    else:
+        context = browser.new_context()
+        
     _attach_context_listeners(context)
     return pw, browser, context
 
