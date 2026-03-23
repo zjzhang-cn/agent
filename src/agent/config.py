@@ -163,6 +163,19 @@ def get_system_default_browser() -> tuple[Optional[str], Optional[str]]:
 
     return None, None
 
+def get_browser_launch_args() -> Optional[List[str]]:
+    """返回 browser_use 启动浏览器时的额外参数列表。
+
+    环境变量（按优先级依次检查）：
+    - COPAW_BROWSER_LAUNCH_ARGS
+    - BROWSER_LAUNCH_ARG
+    
+    """
+    value = get_config_value("COPAW_BROWSER_LAUNCH_ARGS", "BROWSER_LAUNCH_ARG")
+    if value is None:
+        return None
+    return parse_string_list(value) or None
+
 def get_browser_use_sys_default() -> bool:
     """返回 browser_use 是否默认使用系统浏览器。
 

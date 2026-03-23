@@ -1,6 +1,5 @@
 import json
 import logging
-import os
 import subprocess
 import sys
 import time
@@ -18,6 +17,7 @@ from .config import (
     get_browser_use_sys_default,
     get_system_default_browser,
     is_running_in_container,
+    get_browser_launch_args,
 )
 
 logger = logging.getLogger(__name__)
@@ -151,9 +151,10 @@ def _is_browser_running() -> bool:
 
 
 def _chromium_launch_args() -> List[str]:
+    args = get_browser_launch_args() or []
     if is_running_in_container():
-        return ["--no-sandbox", "--disable-dev-shm-usage"]
-    return []
+        args.extend(["--no-sandbox", "--disable-dev-shm-usage"])
+    return args
 
 
 def _parse_json_param(value: str, default: Any = None) -> Any:
